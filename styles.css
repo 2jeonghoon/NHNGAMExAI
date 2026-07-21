@@ -261,7 +261,8 @@ h1 span {
   color: var(--ink);
   background: #19323a;
   cursor: pointer;
-  transition: border-color 120ms ease, background-color 120ms ease, transform 120ms ease;
+  transition: border-color 120ms ease, background-color 120ms ease, transform 120ms ease, box-shadow 240ms ease;
+  box-shadow: 0 0 0 0 rgba(255, 211, 111, 0);
 }
 
 .command-button:hover:not(:disabled),
@@ -278,7 +279,9 @@ h1 span {
 .legacy-button:active:not(:disabled),
 .modal-choice:active:not(:disabled),
 .captain-card:active:not(:disabled) {
-  transform: translateY(1px);
+  transform: translateY(1px) scale(0.98);
+  box-shadow: 0 0 0 3px rgba(255, 211, 111, 0.4);
+  transition: transform 60ms ease, box-shadow 60ms ease;
 }
 
 .command-button {

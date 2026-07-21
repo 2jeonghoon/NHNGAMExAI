@@ -342,6 +342,8 @@ let muted = false;
 let audioContext = null;
 let lastFrame = 0;
 let visualEffects = [];
+let mapClickRipples = [];
+let shakeMagnitude = 0;
 
 function loadMeta() {
   const fallback = {
@@ -828,6 +830,8 @@ function addModalActions(actions) {
 function showHarbor() {
   run = null;
   visualEffects = [];
+  mapClickRipples = [];
+  shakeMagnitude = 0;
   canvas.classList.remove("map-active");
   updateHud();
   clearElement(ui.actionDock);
@@ -1304,6 +1308,8 @@ function combatAction(action) {
   } else if (action === "board") {
     if (combat.range !== 1 || enemy.sails > enemy.maxSails * 0.55) return;
     const chance = clamp(0.42 + (getCrewPower() - enemy.crew) / 45 + (hasTrait("brave") ? 0.08 : 0), 0.2, 0.9);
+    spawnImpactSparks(482, 453, 14);
+    triggerShake(8);
     if (Math.random() < chance) {
       enemy.hull = 0;
       combat.captured = true;
@@ -1446,12 +1452,35 @@ function addCannonEffect(source, broadside = false) {
   const count = broadside ? 6 : 3;
   for (let index = 0; index < count; index += 1) {
     visualEffects.push({
+      type: "ball",
       source,
       progress: -index * 0.05,
       speed: 0.035 + Math.random() * 0.012,
       offset: randomInt(-20, 20),
+      hit: false,
     });
   }
+  visualEffects.push({ type: "flash", source, progress: 0, speed: 0.11 });
+}
+
+function spawnImpactSparks(x, y, count = 9) {
+  for (let index = 0; index < count; index += 1) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 0.6 + Math.random() * 1.4;
+    visualEffects.push({
+      type: "spark",
+      x,
+      y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      progress: 0,
+      speed: 0.05 + Math.random() * 0.045,
+    });
+  }
+}
+
+function triggerShake(magnitude) {
+  shakeMagnitude = Math.max(shakeMagnitude, magnitude);
 }
 
 function renderCombatActions() {
@@ -2264,6 +2293,17 @@ function drawMap(time) {
   run.map.nodes.forEach((node) => drawMapNode(node, current, available, time));
   drawShip(current.x - 4, current.y - 47, 0.54, false, captain().coat);
 
+  mapClickRipples = mapClickRipples.filter((ripple) => ripple.progress < 1);
+  mapClickRipples.forEach((ripple) => {
+    ripple.progress += 0.05;
+    const radius = 22 + ripple.progress * 46;
+    ctx.beginPath();
+    ctx.arc(ripple.x, ripple.y, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255, 241, 204, ${1 - ripple.progress})`;
+    ctx.lineWidth = 3 * (1 - ripple.progress) + 1;
+    ctx.stroke();
+  });
+
   ctx.fillStyle = "rgba(4, 18, 24, 0.72)";
   ctx.fillRect(22, 20, 306, 62);
   ctx.fillStyle = "#f2dfbb";
@@ -2383,8 +2423,16 @@ function drawShip(x, y, scale, flip, color) {
 
 function drawCombat(time) {
   const palette = ACTS[run?.actIndex || 0];
+  ctx.save();
+  if (shakeMagnitude > 0.3) {
+    ctx.translate((Math.random() - 0.5) * shakeMagnitude, (Math.random() - 0.5) * shakeMagnitude);
+  }
   drawOcean(palette, time, true);
-  if (!run?.combat) return;
+  if (!run?.combat) {
+    ctx.restore();
+    shakeMagnitude *= 0.85;
+    return;
+  }
   const combat = run.combat;
   const enemy = combat.enemy;
   const rangePositions = { 1: 735, 2: 900, 3: 1060 };
@@ -2420,6 +2468,28 @@ function drawCombat(time) {
   visualEffects = visualEffects.filter((effect) => effect.progress < 1.2);
   visualEffects.forEach((effect) => {
     effect.progress += effect.speed;
+
+    if (effect.type === "flash") {
+      const p = clamp(effect.progress, 0, 1);
+      const x = effect.source === "player" ? 322 : enemyX - 95;
+      ctx.beginPath();
+      ctx.arc(x, 453, 18 * (1 - p) + 3, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 214, 130, ${0.85 * (1 - p)})`;
+      ctx.fill();
+      return;
+    }
+
+    if (effect.type === "spark") {
+      const p = clamp(effect.progress, 0, 1);
+      const x = effect.x + effect.vx * effect.progress * 22;
+      const y = effect.y + effect.vy * effect.progress * 22;
+      ctx.beginPath();
+      ctx.arc(x, y, 3 * (1 - p) + 1, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, ${170 + Math.floor(70 * (1 - p))}, 110, ${1 - p})`;
+      ctx.fill();
+      return;
+    }
+
     const startX = effect.source === "player" ? 322 : enemyX - 95;
     const endX = effect.source === "player" ? enemyX - 92 : 322;
     const x = startX + (endX - startX) * effect.progress;
@@ -2429,6 +2499,12 @@ function drawCombat(time) {
     ctx.beginPath();
     ctx.arc(x, y, 5, 0, Math.PI * 2);
     ctx.fill();
+
+    if (!effect.hit && effect.progress >= 0.97) {
+      effect.hit = true;
+      spawnImpactSparks(x, y, 7);
+      triggerShake(5);
+    }
   });
 
   ctx.fillStyle = "rgba(6, 20, 25, 0.82)";
@@ -2438,6 +2514,8 @@ function drawCombat(time) {
   ctx.textAlign = "center";
   ctx.fillText(`적 선원 ${Math.max(0, enemy.crew)} · 우리 선원 전투력 ${getCrewPower()} · ${combat.turn}턴`, 600, 638);
   ctx.textAlign = "left";
+  ctx.restore();
+  shakeMagnitude *= 0.85;
 }
 
 function drawCombatHud(x, y, name, hull, maxHull, sails, maxSails, accent) {
@@ -2476,7 +2554,10 @@ canvas.addEventListener("click", (event) => {
   const x = (event.clientX - bounds.left) * (canvas.width / bounds.width);
   const y = (event.clientY - bounds.top) * (canvas.height / bounds.height);
   const target = availableNodes().find((node) => Math.hypot(node.x - x, node.y - y) <= 36);
-  if (target) travelTo(target.id);
+  if (target) {
+    mapClickRipples.push({ x: target.x, y: target.y, progress: 0 });
+    travelTo(target.id);
+  }
 });
 
 window.addEventListener("keydown", (event) => {
