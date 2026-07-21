@@ -1090,11 +1090,14 @@ function travelTo(nodeId) {
 
   const travelMorale = (hasArtifact("figurehead") ? 1 : 0) + getCookMoraleBonus();
   if (travelMorale > 0) run.morale = clamp(run.morale + travelMorale, 0, 100);
+  let starvationPenalty = 0;
   if (!hasTrait("stoic")) {
-    if (run.food === 0) run.morale -= 10;
-    if (run.water === 0) run.morale -= 12;
+    if (run.food === 0) starvationPenalty += 10;
+    if (run.water === 0) starvationPenalty += 12;
   }
-  logEvent(`${NODE_TYPES[target.type].name} 항로로 이동했다. 식량 -${foodCost}, 식수 -${baseCost}${travelMorale > 0 ? `, 사기 +${travelMorale}` : ""}.`);
+  if (starvationPenalty > 0) run.morale = clamp(run.morale - starvationPenalty, 0, 100);
+  const moraleNote = travelMorale > 0 ? `, 사기 +${travelMorale}` : starvationPenalty > 0 ? `, 굶주림으로 사기 -${starvationPenalty}` : "";
+  logEvent(`${NODE_TYPES[target.type].name} 항로로 이동했다. 식량 -${foodCost}, 식수 -${baseCost}${moraleNote}.`);
   updateHud();
   clearElement(ui.actionDock);
 
@@ -1676,14 +1679,15 @@ function showStormEvent() {
   grid.append(
     makeChoiceButton({
       title: "폭풍을 가른다",
-      cost: "선체 4~10",
+      cost: "선체 4~10, 돛 2~5",
       copy: "피해를 감수하고 악명 8을 얻습니다.",
       action: () => {
         const damage = captain().id === "navigator" ? randomInt(2, 5) : randomInt(4, 10);
+        const sailDamage = randomInt(2, 5);
         run.hull -= damage;
-        run.sails = Math.max(0, run.sails - randomInt(2, 5));
+        run.sails = Math.max(0, run.sails - sailDamage);
         run.infamy += 8;
-        logEvent(`폭풍을 돌파했다. 선체 피해 ${damage}, 악명 +8.`);
+        logEvent(`폭풍을 돌파했다. 선체 피해 ${damage}, 돛 피해 ${sailDamage}, 악명 +8.`);
         if (!checkDefeat()) returnToMap();
       },
     }),
@@ -1694,8 +1698,9 @@ function showStormEvent() {
       action: () => {
         run.food = Math.max(0, run.food - 3);
         run.water = Math.max(0, run.water - 3);
-        if (run.food === 0 || run.water === 0) run.morale -= 8;
-        logEvent("폭풍을 우회했다. 식량과 식수 -3.");
+        const outOfSupplies = run.food === 0 || run.water === 0;
+        if (outOfSupplies) run.morale = clamp(run.morale - 8, 0, 100);
+        logEvent(`폭풍을 우회했다. 식량과 식수 -3${outOfSupplies ? ", 보급 고갈로 사기 -8" : ""}.`);
         if (!checkDefeat()) returnToMap();
       },
     }),
