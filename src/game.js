@@ -687,7 +687,7 @@ function updateHud() {
   run.crew.forEach((member) => {
     const rarity = RARITIES[member.rarityId] || RARITIES.normal;
     const row = makeElement("div", `crew-member rarity-${member.rarityId || "normal"}`);
-    row.append(makeElement("div", "crew-avatar", member.mark));
+    row.append(makeElement("div", `crew-avatar crew-avatar--${member.roleId}`, member.mark));
     const copy = makeElement("div", "crew-copy");
     copy.append(makeElement("strong", "", member.name));
     const detail = makeElement("div", "crew-detail");
@@ -850,7 +850,7 @@ function showHarbor() {
     const unlocked = isCaptainUnlocked(item);
     if (!unlocked) {
       const lockedCard = makeButton("", "captain-card is-locked", () => {}, true);
-      const portrait = makeElement("div", "captain-portrait");
+      const portrait = makeElement("div", "captain-portrait captain-portrait--placeholder");
       portrait.style.setProperty("--portrait", "#4a545a");
       portrait.style.setProperty("--coat", "#2a3236");
       lockedCard.append(
@@ -867,9 +867,7 @@ function showHarbor() {
       playTone(420, 0.05, "triangle");
       showHarbor();
     });
-    const portrait = makeElement("div", "captain-portrait");
-    portrait.style.setProperty("--portrait", item.portrait);
-    portrait.style.setProperty("--coat", item.coat);
+    const portrait = makeElement("div", `captain-portrait captain-portrait--${item.id}`);
     card.append(portrait, makeElement("h3", "", item.name), makeElement("span", "", item.title), makeElement("p", "", item.description));
     captainGrid.append(card);
   });

@@ -804,10 +804,12 @@ h1 span {
   height: 48px;
   margin-bottom: 11px;
   border: 2px solid #b89552;
-  background: #0b1c22;
+  background-color: #0b1c22;
+  background-size: cover;
+  background-position: center;
 }
 
-.captain-portrait::before {
+.captain-portrait--placeholder::before {
   position: absolute;
   top: 9px;
   left: 14px;
@@ -818,7 +820,7 @@ h1 span {
   content: "";
 }
 
-.captain-portrait::after {
+.captain-portrait--placeholder::after {
   position: absolute;
   right: 7px;
   bottom: 6px;
@@ -827,6 +829,30 @@ h1 span {
   background: var(--coat, #8b3e36);
   content: "";
   clip-path: polygon(18% 0, 82% 0, 100% 100%, 0 100%);
+}
+
+.captain-portrait--gunner { background-image: url("src/assets/portraits/captain_gunner.png"); }
+.captain-portrait--navigator { background-image: url("src/assets/portraits/captain_navigator.png"); }
+.captain-portrait--mystic { background-image: url("src/assets/portraits/captain_mystic.png"); }
+.captain-portrait--revenant { background-image: url("src/assets/portraits/captain_revenant.png"); }
+
+.crew-avatar {
+  background-size: cover;
+  background-position: center;
+}
+
+.crew-avatar--gunner { background-image: url("src/assets/portraits/crew_gunner.png"); }
+.crew-avatar--rigger { background-image: url("src/assets/portraits/crew_rigger.png"); }
+.crew-avatar--carpenter { background-image: url("src/assets/portraits/crew_carpenter.png"); }
+.crew-avatar--cook { background-image: url("src/assets/portraits/crew_cook.png"); }
+.crew-avatar--marine { background-image: url("src/assets/portraits/crew_marine.png"); }
+.crew-avatar--lookout { background-image: url("src/assets/portraits/crew_lookout.png"); }
+.crew-avatar--quartermaster { background-image: url("src/assets/portraits/crew_quartermaster.png"); }
+.crew-avatar--surgeon { background-image: url("src/assets/portraits/crew_surgeon.png"); }
+
+.crew-avatar[class*="crew-avatar--"] {
+  color: transparent;
+  text-shadow: none;
 }
 
 .captain-card h3,
