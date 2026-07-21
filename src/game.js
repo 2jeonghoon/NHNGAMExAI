@@ -1369,8 +1369,12 @@ function combatAction(action) {
   combat.locked = true;
   enemy.hull = Math.max(0, enemy.hull);
   enemy.sails = Math.max(0, enemy.sails);
+  run.hull = Math.max(0, run.hull);
+  run.morale = Math.max(0, run.morale);
   updateHud();
   renderActionDock();
+
+  if (checkDefeat()) return;
 
   if (enemy.hull <= 0 || enemy.crew <= 0) {
     setTimeout(winCombat, 360);
