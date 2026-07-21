@@ -1,0 +1,1334 @@
+:root {
+  color-scheme: dark;
+  --ink: #e9e0cf;
+  --muted: #9da5a1;
+  --sea-deep: #071a24;
+  --sea-mid: #0d3542;
+  --panel: #10252c;
+  --panel-strong: #172e34;
+  --line: #36505a;
+  --gold: #e0ae4b;
+  --gold-bright: #ffd36f;
+  --red: #c54d3f;
+  --green: #57ae79;
+  --blue: #54a9c2;
+  --paper: #f0e7d5;
+  --shadow: rgba(0, 0, 0, 0.38);
+  font-family: "Pretendard", "Noto Sans KR", "Apple SD Gothic Neo", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  min-height: 100%;
+  background: var(--sea-deep);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  color: var(--ink);
+  background-color: var(--sea-deep);
+}
+
+button {
+  font: inherit;
+}
+
+button:focus-visible,
+canvas:focus-visible {
+  outline: 2px solid var(--gold-bright);
+  outline-offset: 3px;
+}
+
+.game-shell {
+  width: min(1680px, 100%);
+  margin: 0 auto;
+  padding: 18px;
+}
+
+.topbar {
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 0 4px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.brand-lockup,
+.voyage-strip,
+.section-heading,
+.meter-copy,
+.action-title,
+.choice-head {
+  display: flex;
+  align-items: center;
+}
+
+.brand-lockup {
+  gap: 14px;
+  min-width: 0;
+}
+
+.brand-mark {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid #8a6b31;
+  color: var(--gold-bright);
+  background: #17262a;
+  font-size: 25px;
+  transform: rotate(-2deg);
+}
+
+.eyebrow {
+  margin: 0 0 3px;
+  color: var(--gold);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 0;
+  color: #fff5e3;
+  font-family: Georgia, "Noto Serif KR", serif;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+h1 span {
+  margin-left: 7px;
+  color: var(--gold);
+  font-size: 15px;
+  font-family: inherit;
+  font-weight: 600;
+}
+
+.voyage-strip {
+  justify-content: flex-end;
+  gap: 1px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  background: #0b2028;
+}
+
+.voyage-strip > div {
+  min-width: 82px;
+  padding: 9px 13px;
+  border-right: 1px solid var(--line);
+}
+
+.voyage-strip span,
+.resource-cell span,
+.meter-copy span,
+.artifact-card .section-heading span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.voyage-strip strong {
+  display: block;
+  margin-top: 2px;
+  color: #fff1d3;
+  font-size: 13px;
+}
+
+.icon-button,
+.text-button {
+  border: 0;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+}
+
+.icon-button {
+  width: 40px;
+  height: 40px;
+  margin: 0 5px;
+  padding: 0;
+  color: var(--gold-bright);
+  font-size: 20px;
+}
+
+.icon-button.is-muted {
+  color: #68777b;
+  text-decoration: line-through;
+}
+
+.game-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 14px;
+  padding-top: 14px;
+}
+
+.viewport-panel,
+.ship-panel {
+  min-width: 0;
+}
+
+.canvas-wrap {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 12 / 7;
+  min-height: 420px;
+  border: 1px solid #48606a;
+  background: #0b3440;
+  box-shadow: 0 16px 40px var(--shadow);
+}
+
+#gameCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: default;
+}
+
+#gameCanvas.map-active {
+  cursor: pointer;
+}
+
+.action-dock {
+  min-height: 112px;
+  margin-top: 10px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  background: #0d232b;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.2);
+}
+
+.action-title {
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.action-title h2 {
+  margin: 0;
+  color: #fff3da;
+  font: 700 15px Georgia, "Noto Serif KR", serif;
+}
+
+.action-title p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.combat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+
+.combat-log-line {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  opacity: 0.62;
+}
+
+.action-buttons {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 8px;
+}
+
+.command-button,
+.primary-button,
+.secondary-button,
+.captain-card,
+.legacy-button,
+.modal-choice {
+  border: 1px solid #4c626a;
+  color: var(--ink);
+  background: #19323a;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease, transform 120ms ease;
+}
+
+.command-button:hover:not(:disabled),
+.secondary-button:hover:not(:disabled),
+.legacy-button:hover:not(:disabled),
+.modal-choice:hover:not(:disabled) {
+  border-color: var(--gold);
+  background: #213e45;
+}
+
+.command-button:active:not(:disabled),
+.primary-button:active:not(:disabled),
+.secondary-button:active:not(:disabled),
+.legacy-button:active:not(:disabled),
+.modal-choice:active:not(:disabled),
+.captain-card:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.command-button {
+  min-height: 48px;
+  padding: 8px 11px;
+  text-align: left;
+}
+
+.command-button strong,
+.command-button span {
+  display: block;
+}
+
+.command-button strong {
+  color: #fff0d0;
+  font-size: 13px;
+}
+
+.command-button span {
+  margin-top: 3px;
+  color: #aeb9b7;
+  font-size: 10px;
+}
+
+.command-button:disabled,
+.legacy-button:disabled,
+.modal-choice:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.command-button.danger {
+  border-color: #75483f;
+}
+
+.command-button.skill {
+  border-color: #8e713c;
+  background: #3a3022;
+}
+
+.ship-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ship-card {
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.identity-card,
+.vitals-card,
+.crew-card,
+.artifact-card,
+.log-card {
+  padding: 14px;
+}
+
+.section-heading {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.section-heading h2 {
+  margin: 0;
+  color: #fff0d4;
+  font: 700 14px Georgia, "Noto Serif KR", serif;
+}
+
+.section-heading.compact {
+  margin-bottom: 10px;
+}
+
+.identity-card h2 {
+  font-size: 18px;
+}
+
+.captain-badge {
+  max-width: 116px;
+  padding: 5px 7px;
+  border: 1px solid #6c5a36;
+  color: var(--gold-bright);
+  background: #2c291f;
+  font-size: 10px;
+  text-align: center;
+}
+
+.meter-row + .meter-row {
+  margin-top: 10px;
+}
+
+.meter-copy {
+  justify-content: space-between;
+  margin-bottom: 5px;
+}
+
+.meter-copy strong {
+  color: #fff4df;
+  font-size: 11px;
+}
+
+.meter {
+  width: 100%;
+  height: 7px;
+  overflow: hidden;
+  border: 1px solid #354950;
+  background: #07181e;
+}
+
+.meter > span {
+  display: block;
+  width: 0;
+  height: 100%;
+  transition: width 180ms ease;
+}
+
+.hull-meter > span { background: var(--red); }
+.sails-meter > span { background: var(--blue); }
+.morale-meter > span { background: var(--gold); }
+
+.cargo-card {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.resource-cell {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.resource-cell:nth-child(even) { border-right: 0; }
+.resource-cell:nth-child(n + 3) { border-bottom: 0; }
+
+.resource-cell strong {
+  display: block;
+  margin-top: 1px;
+  color: #fff3dc;
+  font-size: 16px;
+}
+
+.resource-icon {
+  position: relative;
+  display: block;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+}
+
+.food-icon {
+  border: 2px solid #d29b54;
+  border-radius: 50% 50% 45% 45%;
+}
+
+.food-icon::after {
+  position: absolute;
+  top: -4px;
+  left: 9px;
+  width: 2px;
+  height: 7px;
+  background: #61a56a;
+  content: "";
+  transform: rotate(30deg);
+}
+
+.water-icon {
+  width: 17px;
+  height: 22px;
+  margin-left: 2px;
+  border-radius: 60% 60% 60% 60% / 75% 75% 38% 38%;
+  background: #54a9c2;
+  transform: rotate(45deg);
+}
+
+.gold-icon {
+  border: 3px double #e0ae4b;
+  border-radius: 50%;
+  background: #79581f;
+}
+
+.cannon-icon::before {
+  position: absolute;
+  top: 6px;
+  left: 1px;
+  width: 20px;
+  height: 8px;
+  background: #9ca5a4;
+  content: "";
+  transform: rotate(-12deg);
+}
+
+.cannon-icon::after {
+  position: absolute;
+  right: 0;
+  bottom: 1px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid #b68243;
+  border-radius: 50%;
+  content: "";
+}
+
+.crew-list,
+.artifact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rarity-normal { --rarity-color: #aeb9b6; }
+.rarity-rare { --rarity-color: #54a9c2; }
+.rarity-epic { --rarity-color: #b982d9; }
+.rarity-legendary { --rarity-color: #ffd36f; }
+
+.crew-member {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px;
+  border-left: 2px solid var(--rarity-color, #617b83);
+  background: #0b2027;
+}
+
+.crew-avatar {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  color: #10242a;
+  background: #d4b168;
+  border: 1px solid var(--rarity-color, #617b83);
+  font-weight: 900;
+  font-size: 12px;
+}
+
+.crew-copy {
+  min-width: 0;
+}
+
+.crew-detail {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.crew-member strong,
+.crew-member span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crew-member strong {
+  color: #f5ead6;
+  font-size: 11px;
+}
+
+.crew-member span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.crew-member .crew-effect {
+  margin-top: 2px;
+  color: #c9d3cf;
+  font-size: 8px;
+}
+
+.crew-detail > span:first-child {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.rarity-badge,
+.crew-member .rarity-badge {
+  display: inline-block;
+  flex: 0 0 auto;
+  padding: 1px 4px;
+  border: 1px solid var(--rarity-color, #617b83);
+  color: var(--rarity-color, #aeb9b6);
+  background: #11252b;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.item-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.crew-stat {
+  color: var(--gold-bright);
+  font-size: 10px;
+}
+
+.empty-state {
+  margin: 0;
+  padding: 8px 0;
+  color: #708087;
+  font-size: 10px;
+}
+
+.artifact-list {
+  flex-flow: column nowrap;
+}
+
+.artifact-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 6px;
+  border-left: 2px solid var(--rarity-color, #675a3b);
+  background: #20251f;
+}
+
+.artifact-token {
+  min-width: 0;
+  overflow: hidden;
+  color: #e9dfca;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-remove-button {
+  min-width: 0;
+  padding: 2px 4px;
+  border: 0;
+  color: #9da5a1;
+  background: transparent;
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.item-remove-button:hover:not(:disabled) {
+  color: #f09a8f;
+}
+
+.item-remove-button:disabled {
+  opacity: 0.28;
+  cursor: not-allowed;
+}
+
+.log-card {
+  min-height: 150px;
+}
+
+.text-button {
+  padding: 2px;
+  color: #b7c1be;
+  font-size: 10px;
+}
+
+.text-button:hover {
+  color: var(--gold-bright);
+}
+
+.event-log {
+  max-height: 126px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.event-log li {
+  position: relative;
+  padding: 6px 0 6px 13px;
+  border-top: 1px solid rgba(84, 107, 115, 0.35);
+  color: #b9c1bd;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.event-log li::before {
+  position: absolute;
+  top: 11px;
+  left: 1px;
+  width: 4px;
+  height: 4px;
+  background: var(--gold);
+  content: "";
+  transform: rotate(45deg);
+}
+
+.event-log li:first-child {
+  color: #f1dfbf;
+}
+
+.modal-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  overflow-y: auto;
+  background: rgba(4, 14, 18, 0.82);
+  backdrop-filter: blur(2px);
+}
+
+.modal-layer[hidden] {
+  display: none;
+}
+
+.modal-panel {
+  width: min(880px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 26px;
+  border: 1px solid #806a3f;
+  background: #11262c;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+}
+
+.modal-panel.narrow {
+  width: min(620px, 100%);
+}
+
+.modal-panel h2 {
+  margin-bottom: 9px;
+  color: #fff0ce;
+  font: 700 28px Georgia, "Noto Serif KR", serif;
+  letter-spacing: 0;
+}
+
+.modal-copy {
+  max-width: 720px;
+  margin-bottom: 18px;
+  color: #bcc6c2;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.captain-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.captain-card.is-locked {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.captain-card.is-locked .captain-portrait {
+  filter: grayscale(1);
+}
+
+.captain-card.is-locked > span {
+  color: var(--muted);
+}
+
+.map-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.map-card {
+  min-height: 96px;
+  padding: 14px;
+  text-align: left;
+}
+
+.map-card.is-selected {
+  border-color: var(--gold-bright);
+  background: #2b372e;
+  box-shadow: inset 0 0 0 1px #8a713d;
+}
+
+.map-card.is-locked {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.map-card.is-locked > span {
+  color: var(--muted);
+}
+
+.map-card > span {
+  display: block;
+  margin-top: 2px;
+  color: var(--gold);
+  font-size: 10px;
+}
+
+.map-card p {
+  margin: 8px 0 0;
+  color: #aeb9b6;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.captain-card {
+  min-height: 178px;
+  padding: 14px;
+  text-align: left;
+}
+
+.captain-card.is-selected {
+  border-color: var(--gold-bright);
+  background: #2b372e;
+  box-shadow: inset 0 0 0 1px #8a713d;
+}
+
+.captain-portrait {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 11px;
+  border: 2px solid #b89552;
+  background: #0b1c22;
+}
+
+.captain-portrait::before {
+  position: absolute;
+  top: 9px;
+  left: 14px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--portrait, #d7ad78);
+  content: "";
+}
+
+.captain-portrait::after {
+  position: absolute;
+  right: 7px;
+  bottom: 6px;
+  left: 7px;
+  height: 15px;
+  background: var(--coat, #8b3e36);
+  content: "";
+  clip-path: polygon(18% 0, 82% 0, 100% 100%, 0 100%);
+}
+
+.captain-card h3,
+.legacy-card h3,
+.modal-choice h3,
+.map-card h3 {
+  margin: 0;
+  color: #fff1d5;
+  font: 700 14px Georgia, "Noto Serif KR", serif;
+}
+
+.captain-card > span {
+  display: block;
+  margin-top: 2px;
+  color: var(--gold);
+  font-size: 10px;
+}
+
+.captain-card p {
+  margin: 8px 0 0;
+  color: #aeb9b6;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.rarity-odds {
+  margin: 10px 0 0;
+  color: #b9c4c0;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.modal-divider {
+  height: 1px;
+  margin: 20px 0;
+  background: #3a5057;
+}
+
+.legacy-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.legacy-head h3 {
+  margin: 0;
+  color: #f0debb;
+  font: 700 15px Georgia, "Noto Serif KR", serif;
+}
+
+.legacy-head strong {
+  color: var(--gold-bright);
+  font-size: 12px;
+}
+
+.legacy-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.legacy-button {
+  min-height: 64px;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.legacy-button strong,
+.legacy-button span {
+  display: block;
+}
+
+.legacy-button strong {
+  font-size: 11px;
+}
+
+.legacy-button span {
+  margin-top: 3px;
+  color: #aeb9b6;
+  font-size: 9px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.primary-button,
+.secondary-button {
+  min-width: 130px;
+  min-height: 42px;
+  padding: 9px 16px;
+  font-weight: 800;
+  font-size: 12px;
+}
+
+.primary-button {
+  border-color: #d3a94f;
+  color: #172023;
+  background: var(--gold);
+}
+
+.primary-button:hover:not(:disabled) {
+  background: var(--gold-bright);
+}
+
+.secondary-button {
+  background: #19323a;
+}
+
+.choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 9px;
+}
+
+.modal-choice {
+  min-height: 92px;
+  padding: 13px;
+  text-align: left;
+}
+
+.modal-choice.rarity-normal,
+.modal-choice.rarity-rare,
+.modal-choice.rarity-epic,
+.modal-choice.rarity-legendary {
+  border-left: 3px solid var(--rarity-color);
+}
+
+.choice-head {
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.choice-cost {
+  color: var(--gold-bright);
+  font-size: 10px;
+}
+
+.modal-choice p {
+  margin: 7px 0 0;
+  color: #aeb9b6;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.result-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  margin-top: 18px;
+  border: 1px solid #43575d;
+  background: #43575d;
+}
+
+.result-stats > div {
+  padding: 12px;
+  background: #0c2027;
+}
+
+.result-stats span,
+.result-stats strong {
+  display: block;
+}
+
+.result-stats span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.result-stats strong {
+  margin-top: 3px;
+  color: #fff0d1;
+  font-size: 18px;
+}
+
+.unlock-banner {
+  padding: 14px 16px;
+  border: 1px solid var(--gold-bright);
+  background: linear-gradient(135deg, #3a2f1c, #1c2b2e);
+  box-shadow: 0 0 24px rgba(255, 211, 111, 0.18);
+}
+
+.unlock-banner-eyebrow {
+  display: block;
+  color: var(--gold-bright);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.unlock-banner h3 {
+  margin: 4px 0 0;
+  color: #fff1d5;
+  font: 700 16px Georgia, "Noto Serif KR", serif;
+}
+
+.unlock-banner p {
+  margin: 6px 0 0;
+  color: #d9c9ab;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.stats-table {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: #1c343b;
+  border: 1px solid #1c343b;
+}
+
+.stats-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  background: #0c2027;
+  color: #c7d0cd;
+  font-size: 11px;
+}
+
+.stats-row-label {
+  flex: 1;
+  color: #f0debb;
+  font-weight: 700;
+}
+
+@media (max-width: 1120px) {
+  .game-grid {
+    grid-template-columns: minmax(0, 1fr) 288px;
+  }
+
+  .canvas-wrap {
+    min-height: 380px;
+  }
+}
+
+@media (max-width: 880px) {
+  .game-shell {
+    padding: 10px;
+  }
+
+  .topbar {
+    align-items: flex-start;
+  }
+
+  .brand-mark {
+    width: 40px;
+    height: 40px;
+  }
+
+  h1 {
+    font-size: 19px;
+  }
+
+  h1 span {
+    display: block;
+    margin: 1px 0 0;
+    font-size: 12px;
+  }
+
+  .voyage-strip > div {
+    min-width: 62px;
+    padding: 7px 8px;
+  }
+
+  .game-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ship-panel {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+
+  .log-card,
+  .crew-card {
+    grid-row: span 2;
+  }
+}
+
+@media (max-width: 620px) {
+  .game-shell {
+    padding: 0;
+  }
+
+  .topbar {
+    min-height: 0;
+    padding: 10px;
+    border-bottom: 0;
+  }
+
+  .brand-mark {
+    display: none;
+  }
+
+  .eyebrow {
+    font-size: 8px;
+  }
+
+  h1 {
+    font-size: 17px;
+  }
+
+  .voyage-strip {
+    border: 0;
+    background: transparent;
+  }
+
+  .voyage-strip > div {
+    min-width: 48px;
+    padding: 3px 5px;
+    border-right-color: #28414a;
+  }
+
+  .voyage-strip > div:first-child {
+    display: none;
+  }
+
+  .voyage-strip span {
+    font-size: 8px;
+  }
+
+  .voyage-strip strong {
+    font-size: 11px;
+  }
+
+  .icon-button {
+    width: 30px;
+    height: 32px;
+    margin: 0;
+  }
+
+  .game-grid {
+    gap: 8px;
+    padding-top: 0;
+  }
+
+  .canvas-wrap {
+    min-height: 0;
+    border-right: 0;
+    border-left: 0;
+  }
+
+  .action-dock {
+    min-height: 104px;
+    margin-top: 0;
+    padding: 10px;
+    border-right: 0;
+    border-left: 0;
+  }
+
+  .action-title {
+    margin-bottom: 7px;
+  }
+
+  .action-title p {
+    display: none;
+  }
+
+  .action-buttons {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .command-button {
+    min-height: 44px;
+    padding: 7px 8px;
+  }
+
+  .command-button span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ship-panel {
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 0 6px 8px;
+  }
+
+  .ship-card {
+    min-width: 0;
+  }
+
+  .identity-card,
+  .vitals-card,
+  .crew-card,
+  .artifact-card,
+  .log-card {
+    padding: 10px;
+  }
+
+  .identity-card {
+    grid-column: 1 / -1;
+  }
+
+  .identity-card h2 {
+    font-size: 15px;
+  }
+
+  .cargo-card {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .resource-cell {
+    min-height: 48px;
+    padding: 7px;
+  }
+
+  .resource-cell strong {
+    font-size: 13px;
+  }
+
+  .resource-icon {
+    transform: scale(0.8);
+  }
+
+  .water-icon {
+    transform: rotate(45deg) scale(0.8);
+  }
+
+  .crew-card,
+  .log-card {
+    grid-row: auto;
+  }
+
+  .crew-card,
+  .artifact-card,
+  .log-card {
+    grid-column: 1 / -1;
+  }
+
+  .modal-layer {
+    align-items: start;
+    padding: 10px;
+  }
+
+  .modal-panel {
+    padding: 16px;
+  }
+
+  .modal-panel h2 {
+    font-size: 22px;
+  }
+
+  .modal-copy {
+    font-size: 11px;
+  }
+
+  .captain-grid,
+  .legacy-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .captain-card {
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    column-gap: 10px;
+  }
+
+  .captain-portrait {
+    grid-row: span 3;
+    width: 40px;
+    height: 40px;
+    margin: 0;
+  }
+
+  .captain-card p {
+    margin-top: 5px;
+  }
+
+  .modal-actions {
+    position: sticky;
+    bottom: -16px;
+    padding: 10px 0 2px;
+    background: #11262c;
+  }
+
+  .primary-button,
+  .secondary-button {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .choice-grid,
+  .result-stats {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

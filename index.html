@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="한 척의 배와 선원으로 세 개의 해역을 돌파하는 브라우저 로그라이크, 항해의 끝: 해적왕의 유산."
+    />
+    <meta property="og:title" content="항해의 끝: 해적왕의 유산" />
+    <meta
+      property="og:description"
+      content="분기 항로, 자원 관리, 포격과 접안 전투, 전승 성장이 담긴 브라우저 로그라이크."
+    />
+    <meta name="theme-color" content="#071a24" />
+    <title>항해의 끝: 해적왕의 유산</title>
+    <link rel="stylesheet" href="./styles.css?v=20260721f" />
+  </head>
+  <body>
+    <main class="game-shell">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <span class="brand-mark" aria-hidden="true">☠</span>
+          <div>
+            <p class="eyebrow">THE END OF VOYAGE</p>
+            <h1>항해의 끝 <span>해적왕의 유산</span></h1>
+          </div>
+        </div>
+
+        <div class="voyage-strip" aria-label="항해 진행 상황">
+          <div>
+            <span>해역</span>
+            <strong id="actLabel">출항 준비</strong>
+          </div>
+          <div>
+            <span>악명</span>
+            <strong id="infamyLabel">0</strong>
+          </div>
+          <div>
+            <span>전승</span>
+            <strong id="legacyLabel">0</strong>
+          </div>
+          <button id="statsButton" class="icon-button" type="button" title="통계 보기" aria-label="통계 보기">▤</button>
+          <button id="soundButton" class="icon-button" type="button" title="소리 끄기" aria-label="소리 끄기">♪</button>
+        </div>
+      </header>
+
+      <div class="game-grid">
+        <section class="viewport-panel" aria-label="항해 지도와 전투 화면">
+          <div class="canvas-wrap">
+            <canvas
+              id="gameCanvas"
+              width="1200"
+              height="700"
+              aria-label="항해 지도"
+            ></canvas>
+
+            <div id="modalLayer" class="modal-layer" role="dialog" aria-modal="true">
+              <div id="modalPanel" class="modal-panel"></div>
+            </div>
+          </div>
+
+          <div id="actionDock" class="action-dock" aria-live="polite"></div>
+        </section>
+
+        <aside class="ship-panel" aria-label="선박 상태">
+          <section class="ship-card identity-card">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">YOUR VESSEL</p>
+                <h2 id="shipNameLabel">무명의 돛단배</h2>
+              </div>
+              <span id="captainBadge" class="captain-badge">선장 미정</span>
+            </div>
+          </section>
+
+          <section class="ship-card vitals-card">
+            <div class="meter-row">
+              <div class="meter-copy">
+                <span>선체</span>
+                <strong id="hullLabel">0 / 0</strong>
+              </div>
+              <div class="meter hull-meter" aria-hidden="true"><span id="hullMeter"></span></div>
+            </div>
+            <div class="meter-row">
+              <div class="meter-copy">
+                <span>돛</span>
+                <strong id="sailsLabel">0 / 0</strong>
+              </div>
+              <div class="meter sails-meter" aria-hidden="true"><span id="sailsMeter"></span></div>
+            </div>
+            <div class="meter-row">
+              <div class="meter-copy">
+                <span>사기</span>
+                <strong id="moraleLabel">0 / 100</strong>
+              </div>
+              <div class="meter morale-meter" aria-hidden="true"><span id="moraleMeter"></span></div>
+            </div>
+          </section>
+
+          <section class="ship-card cargo-card">
+            <div class="resource-cell">
+              <span class="resource-icon food-icon" aria-hidden="true"></span>
+              <div><span>식량</span><strong id="foodLabel">0</strong></div>
+            </div>
+            <div class="resource-cell">
+              <span class="resource-icon water-icon" aria-hidden="true"></span>
+              <div><span>식수</span><strong id="waterLabel">0</strong></div>
+            </div>
+            <div class="resource-cell">
+              <span class="resource-icon gold-icon" aria-hidden="true"></span>
+              <div><span>금화</span><strong id="goldLabel">0</strong></div>
+            </div>
+            <div class="resource-cell">
+              <span class="resource-icon cannon-icon" aria-hidden="true"></span>
+              <div><span>화력</span><strong id="cannonLabel">0</strong></div>
+            </div>
+          </section>
+
+          <section class="ship-card crew-card">
+            <div class="section-heading compact">
+              <h2>선원</h2>
+              <strong id="crewPowerLabel">전투력 0</strong>
+            </div>
+            <div id="crewList" class="crew-list"></div>
+          </section>
+
+          <section class="ship-card artifact-card">
+            <div class="section-heading compact">
+              <h2>유물</h2>
+              <span id="artifactCount">0 / 6</span>
+            </div>
+            <div id="artifactList" class="artifact-list"></div>
+          </section>
+
+          <section class="ship-card log-card">
+            <div class="section-heading compact">
+              <h2>항해일지</h2>
+              <button id="newVoyageButton" class="text-button" type="button">새 항해</button>
+            </div>
+            <ol id="eventLog" class="event-log" aria-live="polite"></ol>
+          </section>
+        </aside>
+      </div>
+    </main>
+
+    <script defer src="./src/analytics.js?v=20260721f"></script>
+    <script defer src="./src/game.js?v=20260721f"></script>
+  </body>
+</html>
