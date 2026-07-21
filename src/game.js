@@ -431,6 +431,41 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function hasBatchim(word) {
+  const lastChar = word.trim().slice(-1);
+  const code = lastChar.charCodeAt(0) - 0xac00;
+  if (code < 0 || code > 11171) return true;
+  return code % 28 !== 0;
+}
+
+function josa(word, withBatchim, withoutBatchim) {
+  return hasBatchim(word) ? withBatchim : withoutBatchim;
+}
+
+function withJosa(word, withBatchim, withoutBatchim) {
+  return `${word}${josa(word, withBatchim, withoutBatchim)}`;
+}
+
+function hasNonRieulBatchim(word) {
+  const lastChar = word.trim().slice(-1);
+  const code = lastChar.charCodeAt(0) - 0xac00;
+  if (code < 0 || code > 11171) return true;
+  const finalIndex = code % 28;
+  return finalIndex !== 0 && finalIndex !== 8;
+}
+
+function withRoJosa(word) {
+  return `${word}${hasNonRieulBatchim(word) ? "으로" : "로"}`;
+}
+
+function numberHasBatchim(value) {
+  return [0, 1, 3, 6, 7, 8].includes(Math.abs(Math.trunc(value)) % 10);
+}
+
+function withNumberJosa(value, withBatchim, withoutBatchim) {
+  return `${value}${numberHasBatchim(value) ? withBatchim : withoutBatchim}`;
+}
+
 function clearElement(element) {
   while (element.firstChild) element.removeChild(element.firstChild);
 }
@@ -724,7 +759,7 @@ function confirmDismissCrew(memberId) {
   if (!canManageInventory() || run.crew.length <= 1) return;
   const member = run.crew.find((candidate) => candidate.id === memberId);
   if (!member) return;
-  setModalBase("DISMISS CREW", "선원을 내보냅니까?", `${member.rarity} ${member.role} ${member.name}을 배에서 내보냅니다. 되돌릴 수 없으며 보상은 없습니다.`);
+  setModalBase("DISMISS CREW", "선원을 내보냅니까?", `${member.rarity} ${member.role} ${withJosa(member.name, "을", "를")} 배에서 내보냅니다. 되돌릴 수 없으며 보상은 없습니다.`);
   updateHud();
   addModalActions([
     { label: "취소", onClick: closeInventoryModal },
@@ -736,7 +771,7 @@ function confirmDismissCrew(memberId) {
         const index = run.crew.findIndex((candidate) => candidate.id === memberId);
         if (index >= 0) {
           const [dismissed] = run.crew.splice(index, 1);
-          logEvent(`${dismissed.name}을 선원 명부에서 내보냈다.`);
+          logEvent(`${withJosa(dismissed.name, "을", "를")} 선원 명부에서 내보냈다.`);
           playTone(130, 0.08, "sine");
         }
         closeInventoryModal();
@@ -750,7 +785,7 @@ function confirmDiscardArtifact(artifactId) {
   const artifact = run.artifacts.find((candidate) => candidate.id === artifactId);
   if (!artifact) return;
   const rarity = RARITIES[artifact.rarity] || RARITIES.normal;
-  setModalBase("DISCARD ARTIFACT", "유물을 버립니까?", `${rarity.name} 유물 ${artifact.name}을 버립니다. 효과가 즉시 사라지며 보상은 없습니다.`);
+  setModalBase("DISCARD ARTIFACT", "유물을 버립니까?", `${rarity.name} 유물 ${withJosa(artifact.name, "을", "를")} 버립니다. 효과가 즉시 사라지며 보상은 없습니다.`);
   updateHud();
   addModalActions([
     { label: "취소", onClick: closeInventoryModal },
@@ -773,7 +808,7 @@ function confirmDiscardArtifact(artifactId) {
             run.maxSails = Math.max(1, run.maxSails - 6);
             run.sails = Math.min(run.sails, run.maxSails);
           }
-          logEvent(`${discarded.name}을 바다에 버렸다.`);
+          logEvent(`${withJosa(discarded.name, "을", "를")} 바다에 버렸다.`);
           playTone(130, 0.08, "sine");
         }
         closeInventoryModal();
@@ -1160,15 +1195,15 @@ function startCombat(kind) {
     locked: false,
     captured: false,
     firstShotUsed: false,
-    message: `${enemy.name}이 포문을 열었다.`,
-    log: [`${enemy.name}이 포문을 열었다.`],
+    message: `${withJosa(enemy.name, "이", "가")} 포문을 열었다.`,
+    log: [`${withJosa(enemy.name, "이", "가")} 포문을 열었다.`],
   };
   if (hasArtifact("leviathan")) {
     run.hull = Math.min(run.maxHull, run.hull + 5);
   }
   closeModal();
   canvas.classList.remove("map-active");
-  logEvent(`${enemy.name}과 교전 시작.`);
+  logEvent(`${withJosa(enemy.name, "과", "와")} 교전 시작.`);
   Analytics.recordCombatStart();
   renderActionDock();
   playTone(160, 0.16, "sawtooth", 0.045);
@@ -1279,7 +1314,7 @@ function combatAction(action) {
       run.morale -= 6;
       if (run.crew.length > 1 && !hasArtifact("phantomCrew") && Math.random() < 0.25) {
         const lost = run.crew.splice(randomInt(0, run.crew.length - 1), 1)[0];
-        combat.message = `접안 공격이 격퇴됐다. ${lost.name}을 잃고 선체 피해 ${damage}.`;
+        combat.message = `접안 공격이 격퇴됐다. ${withJosa(lost.name, "을", "를")} 잃고 선체 피해 ${damage}.`;
       } else {
         combat.message = `접안 공격이 격퇴됐다. 선체 피해 ${damage}, 사기 -6.`;
       }
@@ -1351,7 +1386,7 @@ function enemyTurn() {
 
   if (combat.range === 3 && enemy.sails > 0 && Math.random() < 0.58) {
     combat.range -= 1;
-    message = `${enemy.name}이 돛을 당겨 거리를 좁혔다.`;
+    message = `${withJosa(enemy.name, "이", "가")} 돛을 당겨 거리를 좁혔다.`;
   } else if (combat.range === 1 && enemy.crew > getCrewPower() * 0.8 && Math.random() < 0.3) {
     const damage = randomInt(4, 7) + run.actIndex;
     run.hull -= damage;
@@ -1574,7 +1609,7 @@ function showTreasure() {
         const gold = adjustedGold(18);
         run.gold += gold;
         run.infamy += 3;
-        logEvent(`침몰선에서 금화 ${gold}을 건졌다.`);
+        logEvent(`침몰선에서 금화 ${withNumberJosa(gold, "을", "를")} 건졌다.`);
         returnToMap();
       },
     },
@@ -1614,7 +1649,7 @@ function showCastawayEvent() {
         const recruit = makeCrew(randomChoice(Object.keys(CREW_ROLES)));
         run.crew.push(recruit);
         run.morale = clamp(run.morale + 5, 0, 100);
-        logEvent(`[${recruit.rarity}] ${recruit.name}이 선원으로 합류했다. 사기 +5.`);
+        logEvent(`[${recruit.rarity}] ${withJosa(recruit.name, "이", "가")} 선원으로 합류했다. 사기 +5.`);
         returnToMap();
       },
     }),
@@ -1814,7 +1849,7 @@ function showPort() {
         run.gold -= recruitPrice;
         const recruit = makeCrew(randomChoice(Object.keys(CREW_ROLES)));
         run.crew.push(recruit);
-        logEvent(`[${recruit.rarity}] ${recruit.name}을 ${recruit.role}로 고용했다.`);
+        logEvent(`[${recruit.rarity}] ${withJosa(recruit.name, "을", "를")} ${withRoJosa(recruit.role)} 고용했다.`);
         showPort();
       },
     },
