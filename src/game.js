@@ -876,9 +876,6 @@ function showHarbor() {
     captainGrid.append(card);
   });
   ui.modalPanel.append(captainGrid);
-  ui.modalPanel.append(makeElement("p", "rarity-odds", `선원·유물 등급 확률 · ${rarityOddsText()}`));
-  ui.modalPanel.append(makeElement("p", "rarity-odds", "구사일생 · 선체가 0이 되는 순간 선체 1로 버팁니다. 횟수는 선장에 따라 다릅니다."));
-
   ui.modalPanel.append(makeElement("div", "modal-divider"));
   const mapHead = makeElement("div", "legacy-head");
   mapHead.append(makeElement("h3", "", "항로 선택"));
