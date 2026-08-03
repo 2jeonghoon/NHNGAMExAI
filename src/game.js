@@ -1255,6 +1255,7 @@ function combatAction(action) {
       playTone(92, 0.18, "square", 0.055);
     } else {
       combat.message = "일제사격이 파도 너머로 빗나갔다.";
+      addCannonEffect("player", false, true);
       playTone(130, 0.08, "sine");
     }
   } else if (action === "chain") {
@@ -1266,6 +1267,7 @@ function combatAction(action) {
       playTone(110, 0.14, "square", 0.05);
     } else {
       combat.message = "사슬탄이 적 돛대를 스쳤다.";
+      addCannonEffect("player", false, true);
     }
   } else if (action === "approach") {
     if (combat.range <= 1) return;
@@ -1422,6 +1424,7 @@ function enemyTurn() {
       playTone(72, 0.2, "square", 0.055);
     } else {
       message = "적의 포탄이 뱃전을 아슬아슬하게 비껴갔다.";
+      addCannonEffect("enemy", false, true);
     }
   }
 
@@ -1445,7 +1448,7 @@ function enemyTurn() {
   checkDefeat();
 }
 
-function addCannonEffect(source, broadside = false) {
+function addCannonEffect(source, broadside = false, missed = false) {
   const count = broadside ? 6 : 3;
   for (let index = 0; index < count; index += 1) {
     visualEffects.push({
@@ -1454,10 +1457,22 @@ function addCannonEffect(source, broadside = false) {
       progress: -index * 0.05,
       speed: 0.035 + Math.random() * 0.012,
       offset: randomInt(-20, 20),
+      missed,
+      missOffset: missed ? randomChoice([-1, 1]) * randomInt(70, 120) : 0,
       hit: false,
     });
   }
   visualEffects.push({ type: "flash", source, progress: 0, speed: 0.11 });
+  for (let index = 0; index < (broadside ? 12 : 6); index += 1) {
+    visualEffects.push({
+      type: "smoke",
+      source,
+      progress: 0,
+      speed: 0.018 + Math.random() * 0.014,
+      offset: randomInt(-16, 16),
+      drift: randomInt(-16, 16),
+    });
+  }
 }
 
 function spawnImpactSparks(x, y, count = 9) {
@@ -2469,10 +2484,50 @@ function drawCombat(time) {
     if (effect.type === "flash") {
       const p = clamp(effect.progress, 0, 1);
       const x = effect.source === "player" ? 322 : enemyX - 95;
+      const gradient = ctx.createRadialGradient(x, 453, 2, x, 453, 34);
+      gradient.addColorStop(0, `rgba(255, 248, 207, ${0.95 * (1 - p)})`);
+      gradient.addColorStop(0.4, `rgba(255, 167, 61, ${0.78 * (1 - p)})`);
+      gradient.addColorStop(1, "rgba(255, 91, 35, 0)");
       ctx.beginPath();
-      ctx.arc(x, 453, 18 * (1 - p) + 3, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255, 214, 130, ${0.85 * (1 - p)})`;
+      ctx.arc(x, 453, 34, 0, Math.PI * 2);
+      ctx.fillStyle = gradient;
       ctx.fill();
+      return;
+    }
+
+    if (effect.type === "smoke") {
+      const p = clamp(effect.progress, 0, 1);
+      const originX = effect.source === "player" ? 322 : enemyX - 95;
+      const direction = effect.source === "player" ? 1 : -1;
+      const x = originX + direction * effect.progress * 54 + effect.drift * p;
+      const y = 453 + effect.offset - effect.progress * 42;
+      const radius = 5 + p * 17;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(78, 84, 82, ${0.34 * (1 - p)})`;
+      ctx.fill();
+      return;
+    }
+
+    if (effect.type === "impact") {
+      const p = clamp(effect.progress, 0, 1);
+      ctx.beginPath();
+      ctx.arc(effect.x, effect.y, 8 + p * 38, 0, Math.PI * 2);
+      ctx.strokeStyle = effect.missed
+        ? `rgba(148, 222, 239, ${0.72 * (1 - p)})`
+        : `rgba(255, 194, 92, ${0.9 * (1 - p)})`;
+      ctx.lineWidth = 5 * (1 - p) + 1;
+      ctx.stroke();
+      return;
+    }
+
+    if (effect.type === "vignette") {
+      const p = clamp(effect.progress, 0, 1);
+      const gradient = ctx.createRadialGradient(600, 350, 190, 600, 350, 680);
+      gradient.addColorStop(0, "rgba(114, 17, 14, 0)");
+      gradient.addColorStop(1, `rgba(157, 28, 19, ${0.38 * (1 - p)})`);
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       return;
     }
 
@@ -2491,7 +2546,22 @@ function drawCombat(time) {
     const endX = effect.source === "player" ? enemyX - 92 : 322;
     const x = startX + (endX - startX) * effect.progress;
     const arc = Math.sin(effect.progress * Math.PI) * -95;
-    const y = 453 + arc + effect.offset;
+    const y = 453 + arc + effect.offset + effect.missOffset * Math.max(0, effect.progress);
+    const previousProgress = Math.max(0, effect.progress - 0.08);
+    const previousX = startX + (endX - startX) * previousProgress;
+    const previousY = 453
+      + Math.sin(previousProgress * Math.PI) * -95
+      + effect.offset
+      + effect.missOffset * previousProgress;
+    const trail = ctx.createLinearGradient(previousX, previousY, x, y);
+    trail.addColorStop(0, "rgba(255, 177, 73, 0)");
+    trail.addColorStop(1, "rgba(255, 218, 145, 0.82)");
+    ctx.strokeStyle = trail;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(previousX, previousY);
+    ctx.lineTo(x, y);
+    ctx.stroke();
     ctx.fillStyle = effect.source === "player" ? "#211b17" : "#3a1a18";
     ctx.beginPath();
     ctx.arc(x, y, 5, 0, Math.PI * 2);
@@ -2499,8 +2569,16 @@ function drawCombat(time) {
 
     if (!effect.hit && effect.progress >= 0.97) {
       effect.hit = true;
-      spawnImpactSparks(x, y, 7);
-      triggerShake(5);
+      visualEffects.push({ type: "impact", x, y, missed: effect.missed, progress: 0, speed: 0.055 });
+      if (effect.missed) {
+        spawnImpactSparks(x, y, 3);
+      } else {
+        spawnImpactSparks(x, y, 10);
+        triggerShake(effect.source === "player" ? 6 : 8);
+        if (effect.source === "enemy") {
+          visualEffects.push({ type: "vignette", progress: 0, speed: 0.045 });
+        }
+      }
     }
   });
 
@@ -2555,6 +2633,21 @@ canvas.addEventListener("click", (event) => {
     mapClickRipples.push({ x: target.x, y: target.y, progress: 0 });
     travelTo(target.id);
   }
+});
+
+document.addEventListener("pointerdown", (event) => {
+  const button = event.target.closest("button");
+  if (!button || button.disabled) return;
+  const bounds = button.getBoundingClientRect();
+  const ripple = makeElement("span", "interaction-ripple");
+  const size = Math.max(bounds.width, bounds.height) * 1.7;
+  ripple.setAttribute("aria-hidden", "true");
+  ripple.style.width = `${size}px`;
+  ripple.style.height = `${size}px`;
+  ripple.style.left = `${event.clientX - bounds.left - size / 2}px`;
+  ripple.style.top = `${event.clientY - bounds.top - size / 2}px`;
+  button.append(ripple);
+  ripple.addEventListener("animationend", () => ripple.remove(), { once: true });
 });
 
 window.addEventListener("keydown", (event) => {
