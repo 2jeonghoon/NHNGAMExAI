@@ -32,6 +32,66 @@ const ui = {
   newVoyageButton: document.querySelector("#newVoyageButton"),
 };
 
+const PLAYER_SHIP_IMAGES = {
+  gunner: "./src/assets/ships/player/ship-player-isabella-black-barrel.png",
+  navigator: "./src/assets/ships/player/ship-player-raul-storm-eye.png",
+  mystic: "./src/assets/ships/player/ship-player-mara-belladonna.png",
+  revenant: "./src/assets/ships/player/ship-player-secret-pirate-king.png",
+};
+
+const ENEMY_SHIP_IMAGES = {
+  "소금칼 밀수선": "./src/assets/ships/enemies/act1/ship-enemy-act1-salt-knife.png",
+  "검은 이빨 해적선": "./src/assets/ships/enemies/act1/ship-enemy-act1-black-tooth.png",
+  "현상금 사냥꾼 마고": "./src/assets/ships/enemies/act1/ship-enemy-act1-bounty-hunter.png",
+  "난파선 약탈자": "./src/assets/ships/enemies/act1/ship-enemy-act1-wreck-raider.png",
+  "왕실 추격함": "./src/assets/ships/enemies/act2/ship-enemy-act2-royal-interceptor.png",
+  "왕실 초계함": "./src/assets/ships/enemies/act2/ship-enemy-act2-royal-patrol.png",
+  "벼락 포격선": "./src/assets/ships/enemies/act2/ship-enemy-act2-thunder-artillery.png",
+  "폭풍 약탈선": "./src/assets/ships/enemies/act2/ship-enemy-act2-storm-raider.png",
+  "망령 해적선": "./src/assets/ships/enemies/act3/ship-enemy-act3-ghost-pirate.png",
+  "뼈돛 추격선": "./src/assets/ships/enemies/act3/ship-enemy-act3-bone-sail.png",
+  "심연 포격선": "./src/assets/ships/enemies/act3/ship-enemy-act3-abyss-artillery.png",
+  "침묵의 접안선": "./src/assets/ships/enemies/act3/ship-enemy-act3-silent-boarder.png",
+};
+
+const STANDARD_BOSS_SHIP_IMAGES = [
+  "./src/assets/ships/bosses/standard/ship-boss-act1-red-coral.png",
+  "./src/assets/ships/bosses/standard/ship-boss-act2-royal-tempest.png",
+  "./src/assets/ships/bosses/standard/ship-boss-act3-graveyard-guardian.png",
+];
+
+const HARD_FINAL_BOSS_SHIP_IMAGES = [
+  "./src/assets/ships/bosses/hard/ship-boss-hard-storm-dreadnought.png",
+  "./src/assets/ships/bosses/hard/ship-boss-hard-storm-dreadnought-phase2.png",
+  "./src/assets/ships/bosses/hard/ship-boss-hard-storm-dreadnought-phase3.png",
+];
+
+const EXTREME_FINAL_BOSS_SHIP_IMAGES = [
+  "./src/assets/ships/bosses/extreme/ship-boss-extreme-abyss-pirate-king.png",
+  "./src/assets/ships/bosses/extreme/ship-boss-extreme-abyss-pirate-king-phase2.png",
+  "./src/assets/ships/bosses/extreme/ship-boss-extreme-abyss-pirate-king-phase3.png",
+];
+
+const shipImageCache = new Map();
+
+function getShipImage(path) {
+  if (!path) return null;
+  if (!shipImageCache.has(path)) {
+    const image = new Image();
+    image.decoding = "async";
+    image.src = path;
+    shipImageCache.set(path, image);
+  }
+  const image = shipImageCache.get(path);
+  return image.complete && image.naturalWidth > 0 ? image : null;
+}
+
+function bossShipImagePaths(mapId, actIndex) {
+  if (mapId === "storm" && actIndex === 2) return HARD_FINAL_BOSS_SHIP_IMAGES;
+  if (mapId === "abyss" && actIndex === 2) return EXTREME_FINAL_BOSS_SHIP_IMAGES;
+  return [STANDARD_BOSS_SHIP_IMAGES[actIndex]];
+}
+
 const MAPS = [
   {
     id: "calm",
@@ -1150,14 +1210,15 @@ function renderActionDock() {
 function makeEnemy(kind) {
   const act = run.actIndex;
   const regularNames = [
-    ["소금칼 밀수선", "검은 이빨 해적선", "현상금 사냥꾼 마고"],
-    ["폭풍 약탈선", "왕실 추격함", "번개창 사략선"],
-    ["망령의 갈레온", "심해 숭배선", "뼈돛 약탈선"],
+    ["소금칼 밀수선", "검은 이빨 해적선", "현상금 사냥꾼 마고", "난파선 약탈자"],
+    ["폭풍 약탈선", "왕실 추격함", "왕실 초계함", "벼락 포격선"],
+    ["망령 해적선", "뼈돛 추격선", "심연 포격선", "침묵의 접안선"],
   ];
-  const eliteNames = ["왕실 초계 프리깃", "폭풍함 템페스트", "유령선 플라잉 더치맨"];
+  const eliteNames = ["현상금 사냥꾼 마고", "벼락 포격선", "망령 해적선"];
   const bossNames = ACTS.map((item) => item.boss);
   const boss = kind === "boss";
   const elite = kind === "elite";
+  const name = boss ? bossNames[act] : elite ? eliteNames[act] : randomChoice(regularNames[act]);
   const enemyMult = run.enemyMultiplier || 1;
   const rewardMult = run.rewardMultiplier || 1;
   const maxHull = Math.round((boss ? 54 + act * 15 : elite ? 40 + act * 12 : 27 + act * 9 + randomInt(-2, 4)) * enemyMult);
@@ -1166,7 +1227,8 @@ function makeEnemy(kind) {
 
   return {
     kind,
-    name: boss ? bossNames[act] : elite ? eliteNames[act] : randomChoice(regularNames[act]),
+    name,
+    shipImages: boss ? bossShipImagePaths(run.mapId, act) : [ENEMY_SHIP_IMAGES[name]],
     hull: maxHull,
     maxHull,
     sails: maxSails,
@@ -2388,9 +2450,29 @@ function drawIslandSilhouette(x, y, scale) {
   ctx.restore();
 }
 
-function drawShip(x, y, scale, flip, color) {
+function enemyShipImagePath(enemy) {
+  const paths = enemy.shipImages?.filter(Boolean) || [];
+  if (paths.length <= 1) return paths[0] || null;
+  const hullRatio = clamp(enemy.hull / enemy.maxHull, 0, 1);
+  if (hullRatio <= 0.33) return paths[2] || paths[paths.length - 1];
+  if (hullRatio <= 0.66) return paths[1] || paths[0];
+  return paths[0];
+}
+
+function drawShip(x, y, scale, flip, color, imagePath = null) {
+  const image = getShipImage(imagePath);
   ctx.save();
   ctx.translate(x, y);
+  if (image) {
+    // 생성된 선박 원본은 모두 왼쪽을 바라본다. 플레이어만 적을 향하도록 반전한다.
+    ctx.scale(flip ? scale : -scale, scale);
+    ctx.shadowColor = "rgba(0, 0, 0, 0.48)";
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetY = 7;
+    ctx.drawImage(image, -112, -170, 224, 224);
+    ctx.restore();
+    return;
+  }
   ctx.scale(flip ? -scale : scale, scale);
 
   ctx.fillStyle = "#2c211b";
@@ -2452,8 +2534,15 @@ function drawCombat(time) {
   const bobPlayer = Math.sin(time * 0.003) * 4;
   const bobEnemy = Math.sin(time * 0.003 + 1.7) * 5;
 
-  drawShip(220, 468 + bobPlayer, 1.35, false, captain().coat);
-  drawShip(enemyX, 452 + bobEnemy, enemy.kind === "boss" ? 1.7 : 1.42, true, enemy.kind === "boss" ? "#5d2528" : "#394e51");
+  drawShip(220, 468 + bobPlayer, 1.35, false, captain().coat, PLAYER_SHIP_IMAGES[captain().id]);
+  drawShip(
+    enemyX,
+    452 + bobEnemy,
+    enemy.kind === "boss" ? 1.7 : 1.42,
+    true,
+    enemy.kind === "boss" ? "#5d2528" : "#394e51",
+    enemyShipImagePath(enemy),
+  );
 
   drawCombatHud(36, 42, captain().ship, run.hull, run.maxHull, run.sails, run.maxSails, "#e0ae4b");
   drawCombatHud(754, 42, enemy.name, enemy.hull, enemy.maxHull, enemy.sails, enemy.maxSails, "#c7564d");
