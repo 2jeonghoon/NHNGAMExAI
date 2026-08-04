@@ -70,7 +70,7 @@ const CardDefinitions = (() => {
   const CARD_DEFINITIONS = Object.freeze(Object.fromEntries(definitions.map((definition) => [definition.id, definition])));
 
   function getCard(cardId) {
-    return CARD_DEFINITIONS[cardId] || null;
+    return Object.hasOwn(CARD_DEFINITIONS, cardId) ? CARD_DEFINITIONS[cardId] : null;
   }
 
   function getRewardPool(captainId) {

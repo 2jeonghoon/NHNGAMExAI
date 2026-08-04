@@ -109,6 +109,12 @@ test("보상 풀은 현재 선장의 카드만 포함하고 새 배열을 반환
   assert.deepEqual(summary, { count: 28, hasGunner: true, hasNavigator: false, afterMutation: 28 });
 });
 
+test("정의되지 않은 카드 ID는 상속된 객체 이름도 null로 처리한다", () => {
+  const context = loadCards();
+
+  assert.equal(read(context, 'CardDefinitions.getCard("toString")'), null);
+});
+
 test("카탈로그와 시작 덱은 변경할 수 없다", () => {
   const context = loadCards();
   assert.deepEqual(readJson(context, `({
