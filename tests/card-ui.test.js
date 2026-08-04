@@ -276,6 +276,19 @@ test("잘못된 드롭은 손패와 에너지를 보존한다", () => {
   assert.equal(ui.playCalls.length, 0);
 });
 
+test("유효 대상을 지난 뒤 캔버스 밖에서 놓으면 최종 좌표를 다시 검사해 복귀한다", () => {
+  const ui = renderHandWith(["fire"], { energy: 3 });
+  ui.pointerDown(0);
+  ui.pointerMove(enemyCenter(ui, "enemy-0"));
+  ui.pointerUp({ x: -40, y: -40 });
+
+  assert.equal(ui.dragPhase, "returning");
+  assert.equal(ui.energy, 3);
+  assert.deepEqual(ui.handCardIds, ["fire"]);
+  ui.finishAnimationTwice();
+  assert.equal(ui.playCalls.length, 0);
+});
+
 test("함대 카드는 개별 적 영역 위에서도 allEnemies 대상으로 해석한다", () => {
   const ui = renderHandWith(["barrage_fire"], { enemies: 2, energy: 3 });
   ui.dragTo(enemyCenter(ui, "enemy-1"));
@@ -292,11 +305,41 @@ test("손패와 전투 자원은 의미 있는 버튼과 비활성 이유로 렌
   assert.equal(card.tagName, "BUTTON");
   assert.equal(card.disabled, true);
   assert.match(card.querySelector(".combat-card-name").textContent, /선체 포격/);
-  assert.match(card.querySelector(".combat-card-description").textContent, /선체 포격/);
+  assert.match(card.querySelector(".combat-card-description").textContent, /명중 81%.*선체 8~12/);
   assert.match(ui.actionDock.querySelector(".combat-disabled-reason").textContent, /에너지/);
   assert.equal(ui.actionDock.querySelectorAll(".pile-button").length, 3);
   assert.equal(ui.actionDock.querySelector(".captain-skill-button").tagName, "BUTTON");
   assert.equal(ui.actionDock.querySelector(".end-turn-button").tagName, "BUTTON");
+});
+
+test("카드 설명은 현재 전투 수치로 계산되고 내부 함수명이나 기존 효과 문구를 노출하지 않는다", () => {
+  const ui = renderHandWith(["fire", "aimed_fire", "chain", "approach", "repair", "board"], { energy: 9 });
+  const descriptions = ui.actionDock.querySelectorAll(".combat-card-description").map((element) => element.textContent);
+
+  assert.equal(descriptions[0], "명중 81% · 선체 8~12 피해 · 선원 1 피해 25%");
+  assert.equal(descriptions[1], "명중 96% · 선체 14~18 피해");
+  assert.equal(descriptions[2], "명중 71% · 돛 6~10 피해");
+  assert.equal(descriptions[3], "성공 80% · 대상과 거리 -1 · 회피 8%");
+  assert.equal(descriptions[4], "수리도구 1개 · 선체 7 · 돛 3 회복");
+  assert.equal(descriptions[5], "거리 1·적 돛 55% 이하 · 나포 20%");
+  descriptions.forEach((description) => assert.doesNotMatch(description, /기존|cannonDamage|get[A-Z]/));
+
+  const captainUi = renderHandWith(["gunner_magazine_open"], { captainId: "gunner", energy: 3 });
+  assert.equal(
+    captainUi.actionDock.querySelector(".combat-card-description").textContent,
+    "명중 보장 · 선체 24 피해 · 자신의 선체 6 피해",
+  );
+});
+
+test("카드로 포커스 적을 격파하면 다음 생존 적으로 포커스를 옮긴 뒤 기술 버튼을 렌더링한다", () => {
+  const ui = renderHandWith(["mystic_cursed_tide"], { captainId: "mystic", enemies: 2, energy: 3 });
+  read(ui.context, "findEnemy('enemy-0').hull = 4");
+  ui.key("1");
+  ui.key("Enter");
+  ui.finishAnimationTwice();
+
+  assert.equal(read(ui.context, "run.combat.focusedEnemyId"), "enemy-1");
+  assert.equal(ui.actionDock.querySelector(".captain-skill-button").disabled, false);
 });
 
 test("숫자 선택, 대상 순환, Enter 확인은 생산 키보드 핸들러를 사용한다", () => {

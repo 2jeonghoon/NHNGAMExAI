@@ -1971,6 +1971,7 @@ function recordCardUse(card, resolution) {
 function finishCardResolution(resolution) {
   const combat = run.combat;
   combat.log = [combat.message, ...(combat.log || [])].slice(0, 3);
+  focusedEnemy();
   updateHud();
   renderActionDock();
   if (checkDefeat()) return;
@@ -2085,6 +2086,7 @@ function useCaptainSkill(target) {
   if (!enemy.captured && (enemy.hull <= 0 || enemy.crew <= 0)) enemy.defeated = true;
   run.hull = Math.max(0, run.hull);
   run.morale = Math.max(0, run.morale);
+  focusedEnemy();
   updateHud();
   renderActionDock();
   if (checkDefeat()) return true;
@@ -2446,6 +2448,89 @@ function triggerShake(magnitude) {
 
 const CARD_RARITY_LABELS = { normal: "일반", rare: "희귀", epic: "영웅" };
 
+function formatCombatNumber(value) {
+  return Number.isInteger(value) ? String(value) : String(Math.round(value * 10) / 10);
+}
+
+function formatCombatRange(minimum, maximum) {
+  const low = formatCombatNumber(minimum);
+  const high = formatCombatNumber(maximum);
+  return minimum === maximum ? low : `${low}~${high}`;
+}
+
+function combatHitChance(shotType, delta = 0) {
+  const enemies = FleetCombat.livingEnemies(run?.combat?.enemies || []);
+  const prepared = run?.combat?.nextShotAccuracyBonus || 0;
+  const chances = enemies.map((enemy) => Math.round(clamp(
+    playerHitChance(shotType, enemy) + delta + prepared,
+    0,
+    1,
+  ) * 100));
+  if (chances.length === 0) return "0%";
+  return `${formatCombatRange(Math.min(...chances), Math.max(...chances))}%`;
+}
+
+function combatCannonDamageRange(multiplier = 1, bonus = 0) {
+  const artifactBonus = hasArtifact("powder") ? 3 : 0;
+  const minimum = Math.max(1, Math.round((getCannonPower() + 2 + artifactBonus) * multiplier + bonus));
+  const maximum = Math.max(1, Math.round((getCannonPower() + 6 + artifactBonus) * multiplier + bonus));
+  return formatCombatRange(minimum, maximum);
+}
+
+function combatApproachChance() {
+  if (hasArtifact("ghostSail")) return 100;
+  return Math.round(clamp(0.68 + getRiggerChanceBonus() + run.sails / run.maxSails * 0.12, 0.3, 0.96) * 100);
+}
+
+function combatBoardChance(enemy, delta = 0) {
+  return Math.round(clamp(
+    0.42 + (getCrewPower() - enemy.crew) / 45 + (hasTrait("brave") ? 0.08 : 0) + delta,
+    delta < 0 ? 0.15 : 0.2,
+    delta < 0 ? 0.75 : 0.9,
+  ) * 100);
+}
+
+function combatBoardChanceText(delta = 0) {
+  const chances = FleetCombat.livingEnemies(run?.combat?.enemies || [])
+    .map((enemy) => combatBoardChance(enemy, delta));
+  if (chances.length === 0) return "0%";
+  return `${formatCombatRange(Math.min(...chances), Math.max(...chances))}%`;
+}
+
+function combatCardDescription(card) {
+  const gunnerBonus = getGunnerBonus();
+  const chainLockerBonus = hasArtifact("chainLocker") ? 4 : 0;
+  const chainMinimum = 6 + gunnerBonus + chainLockerBonus;
+  const chainMaximum = 10 + gunnerBonus + chainLockerBonus;
+  const approachChance = combatApproachChance();
+  const descriptions = {
+    fire: `명중 ${combatHitChance("fire")} · 선체 ${combatCannonDamageRange()} 피해 · 선원 1 피해 25%`,
+    aimed_fire: `명중 ${combatHitChance("fire", 0.15)} · 선체 ${combatCannonDamageRange(1, 6)} 피해`,
+    rapid_fire: `명중 ${combatHitChance("fire")} · 선체 ${combatCannonDamageRange(0.6)} 피해 · 카드 1장 드로우`,
+    chain: `명중 ${combatHitChance("chain")} · 돛 ${formatCombatRange(chainMinimum, chainMaximum)} 피해`,
+    heavy_chain: `명중 ${combatHitChance("chain")} · 돛 ${formatCombatRange(chainMinimum + 8, chainMaximum + 8)} 피해`,
+    entangling_chain: `명중 ${combatHitChance("chain")} · 돛 ${formatCombatRange(3 + gunnerBonus, 6 + gunnerBonus)} 피해 · 다음 이동 차단`,
+    approach: `성공 ${approachChance}% · 대상과 거리 -1 · 회피 8%`,
+    tailwind_charge: `순풍 전용 · 성공 ${approachChance}% · 거리 -1 · 카드 1장 드로우`,
+    ram: `성공 ${approachChance}% · 거리 -1 · 적 선체 8 · 자신의 선체 3 피해`,
+    retreat: FleetCombat.livingEnemies(run?.combat?.enemies || []).every((enemy) => enemyRange(enemy.id) >= 3)
+      ? `거리 유지 · 회피 28%${hasArtifact("anchor") ? " · 사기 2 회복" : ""}`
+      : `모든 적과 거리 +1 · 회피 20%${hasArtifact("anchor") ? " · 사기 2 회복" : ""}`,
+    repair: `수리도구 1개 · 선체 ${7 + getCarpenterRepairBonus()} · 돛 3 회복`,
+    overhaul: `수리도구 1개 · 선체 ${14 + getCarpenterRepairBonus()} · 돛 6 회복`,
+    board: `거리 1·적 돛 55% 이하 · 나포 ${combatBoardChanceText()}`,
+    desperate_board: `거리 1 · 적 돛 조건 무시 · 나포 ${combatBoardChanceText(-0.15)}`,
+    barrage_fire: `각 적 명중 ${combatHitChance("fire", -0.1)} · 선체 ${combatCannonDamageRange(0.6)} 피해`,
+    chain_rain: `각 적 명중 ${combatHitChance("chain", -0.1)} · 돛 ${5 + gunnerBonus} 피해`,
+    gunner_shrapnel: `명중 ${combatHitChance("fire")} · 선체 ${combatCannonDamageRange(0.6)} · 선원 2 피해`,
+    gunner_double_broadside: `각 명중 ${combatHitChance("fire")} · 선체 ${combatCannonDamageRange(0.7)} 피해 × 2회`,
+    gunner_overcharge: `명중 ${combatHitChance("fire")} · 선체 ${combatCannonDamageRange(1, 8)} · 적 돛 5 · 자신의 돛 3 피해`,
+    gunner_magazine_open: `명중 보장 · 선체 ${18 + getCannonPower()} 피해 · 자신의 선체 6 피해`,
+    gunner_fleet_broadside: `모든 적 선체 ${formatCombatNumber(10 + getCannonPower() * 0.5)} · 돛 3 · 자신의 선체 4 피해`,
+  };
+  return descriptions[card.id] || card.description;
+}
+
 function idleCardDragState() {
   return {
     instanceId: null,
@@ -2721,7 +2806,10 @@ function finishCardDrag(event) {
   event.preventDefault?.();
   if (cardDragButton?.hasPointerCapture?.(event.pointerId)) cardDragButton.releasePointerCapture(event.pointerId);
   if (!run?.combat || run.combat.locked || run.combat.victoryScheduled) return returnDraggedCard("combat-lock");
-  const target = cardDragState.currentTarget;
+  const eligible = eligibleDropTargets(cardDragState.instanceId);
+  const geometry = combatDropTargetAtClientPoint(event.clientX, event.clientY, eligible);
+  const target = geometry?.target || null;
+  cardDragState.currentTarget = target;
   if (target) return beginCardFlight(cardDragState.instanceId, target, cardDragButton);
   const origin = cardDragState.originRect;
   const releasedAtOrigin = origin
@@ -2833,7 +2921,7 @@ function renderCombatHand() {
       makeElement("span", "combat-card-cost", String(effectiveCardCost(instance))),
       makeElement("strong", "combat-card-name", card.name),
       makeElement("span", "combat-card-family", card.family),
-      makeElement("span", "combat-card-description", card.description),
+      makeElement("span", "combat-card-description", combatCardDescription(card)),
       makeElement("span", "combat-card-rarity", CARD_RARITY_LABELS[card.rarity] || card.rarity),
     );
     if (card.exhaust) button.append(makeElement("span", "combat-card-exhaust", "소멸"));
