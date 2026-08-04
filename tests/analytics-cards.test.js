@@ -77,7 +77,7 @@ test("카드 진행과 에너지, 대상, 턴, 함대 결과를 직렬화한다"
   ]);
 });
 
-function makeCombatContext(cardIds = ["fire"]) {
+function makeCombatContext(cardIds = ["fire"], options = {}) {
   const game = loadGameScripts([
     "src/analytics.js",
     "src/card-definitions.js",
@@ -87,7 +87,7 @@ function makeCombatContext(cardIds = ["fire"]) {
   ]);
   read(game, `
     run = makeTestRun({
-      mapId: "calm", captainId: "gunner", artifacts: [], crew: [], logs: [],
+      mapId: "calm", captainId: ${JSON.stringify(options.captainId || "gunner")}, artifacts: [], crew: [], logs: [],
       cannons: 6, repairKits: 2, hull: 50, maxHull: 100, sails: 10,
       maxSails: 20, morale: 20, safetyNetCharges: 0,
       deck: ${JSON.stringify(cardIds)}, cardRemovals: 0,
@@ -110,7 +110,8 @@ function makeCombatContext(cardIds = ["fire"]) {
 test("실제 카드 사용과 시작한 플레이어 턴이 분석 인자를 기록한다", () => {
   const game = makeCombatContext(["aimed_fire"]);
   const result = JSON.parse(read(game, `JSON.stringify((() => {
-    const recorded = { cards: [], turns: 0 };
+    const recorded = { actions: [], cards: [], turns: 0 };
+    Analytics.addAction = (...args) => recorded.actions.push(args);
     Analytics.recordCardUse = (...args) => recorded.cards.push(args);
     Analytics.recordPlayerTurn = () => { recorded.turns += 1; };
     startCombat("battle");
@@ -120,7 +121,24 @@ test("실제 카드 사용과 시작한 플레이어 턴이 분석 인자를 기
     return recorded;
   })())`));
 
-  assert.deepEqual(result, { cards: [["aimed_fire", null, 1, 1]], turns: 1 });
+  assert.deepEqual(result, { actions: [], cards: [["aimed_fire", "fire", 1, 1]], turns: 1 });
+});
+
+test("비포수 선장 카드도 기존 명령 계열 하나로 집계한다", () => {
+  const game = makeCombatContext(["navigator_read_wind"], { captainId: "navigator" });
+  const result = JSON.parse(read(game, `JSON.stringify((() => {
+    const recorded = { actions: [], card: null };
+    Analytics.addAction = (...args) => recorded.actions.push(args);
+    Analytics.recordCardUse = (...args) => { recorded.card = args; };
+    const instance = run.combat.cardState.hand[0];
+    playCard(instance.instanceId, "sea");
+    return recorded;
+  })())`));
+
+  assert.deepEqual(result, {
+    actions: [],
+    card: ["navigator_read_wind", "approach", 0, 0],
+  });
 });
 
 test("광역 카드가 빗나간 적은 적중 대상 수에 포함하지 않는다", () => {
@@ -134,7 +152,7 @@ test("광역 카드가 빗나간 적은 적중 대상 수에 포함하지 않는
     return recorded;
   })())`));
 
-  assert.deepEqual(result, ["barrage_fire", null, 2, 0]);
+  assert.deepEqual(result, ["barrage_fire", "fire", 2, 0]);
 });
 
 test("전투 결과는 함대당 한 번 기록하고 항해 종료 덱을 넘긴다", () => {

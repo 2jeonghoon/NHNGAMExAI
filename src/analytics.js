@@ -111,11 +111,12 @@ const Analytics = (() => {
   }
 
   function recordCardUse(cardId, family, energy, targetCount) {
-    if (!current || !cardId) return;
+    if (!cardId) return;
+    if (family) Analytics.addAction(family);
+    if (!current) return;
     current.cardUses[cardId] = (current.cardUses[cardId] || 0) + 1;
     current.energySpent += Math.max(0, Number(energy) || 0);
     current.cardTargetCount += Math.max(0, Number(targetCount) || 0);
-    if (family) addAction(family);
   }
 
   function recordCardAcquired(cardId) {

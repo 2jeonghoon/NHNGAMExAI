@@ -1963,13 +1963,15 @@ function applyResolution(resolution) {
 }
 
 function recordCardUse(card, resolution, energySpent) {
-  const actionByFamily = { "포격": "fire", "사슬탄": "chain", "접근": "approach", "회피": "retreat", "수리": "repair", "접안": "board", "광역": "fire" };
+  const actionByFamily = {
+    "포격": "fire", "사슬탄": "chain", "접근": "approach", "회피": "retreat", "수리": "repair", "접안": "board",
+    "광역": "fire", "항해": "approach", "주술": "fire", "망령": "repair",
+  };
   const action = card.id === "chain_rain" ? "chain" : actionByFamily[card.family] || card.id;
-  Analytics.addAction(action);
   const hitTargetCount = Object.values(resolution.damageByEnemy)
     .filter((damage) => damage.hull > 0 || damage.sails > 0 || damage.crew > 0)
     .length;
-  Analytics.recordCardUse(card.id, null, energySpent, hitTargetCount);
+  Analytics.recordCardUse(card.id, action, energySpent, hitTargetCount);
   const dealt = Object.values(resolution.damageByEnemy).reduce((sum, damage) => sum + damage.hull, 0);
   Analytics.addDamage(dealt, resolution.playerDamage);
 }
