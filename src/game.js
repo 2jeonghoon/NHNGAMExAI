@@ -330,6 +330,7 @@ const CREW_ROLES = {
   lookout: { label: "감시원", mark: "감", power: 2, effect: "적 명중률 -5%" },
   quartermaster: { label: "보급관", mark: "보", power: 2, effect: "항구 구매 비용 -1 금화" },
   surgeon: { label: "군의관", mark: "의", power: 2, effect: "전투 승리 시 사기 +3" },
+  boatswain: { label: "갑판장", mark: "갑", power: 2, effect: "전투 에너지 지원" },
 };
 
 const CREW_NAMES = [
@@ -354,6 +355,8 @@ const TRAITS = [
   { id: "eagleEyed", name: "매의 눈", effect: "포격·사슬탄 명중률 +5%" },
   { id: "superstitious", name: "미신을 믿는", effect: "유물 획득 시 사기 +3" },
   { id: "stoic", name: "무감한", effect: "식량·식수 고갈로 인한 사기 피해 없음" },
+  { id: "frugal", name: "절약가", effect: "매 전투 첫 카드 비용 -1" },
+  { id: "rallying", name: "분발", effect: "매 전투 한 번 에너지가 0이 되면 에너지 +1" },
 ];
 
 const ARTIFACTS = [
@@ -375,6 +378,10 @@ const ARTIFACTS = [
   { id: "powder", rarity: "legendary", name: "왕실 흑색화약", description: "포격 피해 +3" },
   { id: "kingsRansom", rarity: "legendary", name: "폐위된 국왕의 몸값", description: "전투 승리 보상 금화·악명 +50%" },
   { id: "leviathan", rarity: "legendary", name: "리바이어던의 심장", description: "최대 선체 +15, 전투 시작 시 선체 5 회복" },
+  { id: "navigatorHourglass", rarity: "normal", name: "항해사의 모래시계", description: "매 전투 첫 턴 에너지 +1" },
+  { id: "brassCapacitor", rarity: "rare", name: "황동 축전기", description: "세 번째 플레이어 턴마다 에너지 +1" },
+  { id: "smugglerPulley", rarity: "epic", name: "밀수업자의 도르래", description: "매 턴 첫 비용 0 카드 사용 시 에너지 +1" },
+  { id: "tyrantFleetSeal", rarity: "legendary", name: "폭군의 함대 인장", description: "최대 에너지 +1, 매 턴 드로우 4장" },
 ];
 
 const NODE_TYPES = {
@@ -598,7 +605,41 @@ function getCrewRoleEffect(member) {
   if (member.roleId === "lookout") return `적 명중률 -${5 + tier * 3}%`;
   if (member.roleId === "quartermaster") return `항구 구매 비용 -${1 + tier} 금화`;
   if (member.roleId === "surgeon") return `전투 승리 시 사기 +${3 + tier * 2}`;
+  if (member.roleId === "boatswain") {
+    return [
+      "전투 첫 턴 에너지 +1",
+      "첫 턴 에너지 +1 · 카드 1장 추가 드로우",
+      "첫 번째와 두 번째 턴 에너지 +1",
+      "최대 에너지 +1 · 첫 턴 카드 1장 추가 드로우",
+    ][tier];
+  }
   return CREW_ROLES[member.roleId]?.effect || "";
+}
+
+function getBoatswainModifiers() {
+  const boatswains = (run?.crew || []).filter((member) => member.roleId === "boatswain");
+  const tier = Math.max(-1, ...boatswains.map((member) => RARITIES[member.rarityId]?.crewTier ?? 0));
+  if (tier < 0) return { maxEnergy: 0, turnEnergy: {}, openingDraw: 0 };
+  return [
+    { maxEnergy: 0, turnEnergy: { 1: 1 }, openingDraw: 0 },
+    { maxEnergy: 0, turnEnergy: { 1: 1 }, openingDraw: 1 },
+    { maxEnergy: 0, turnEnergy: { 1: 1, 2: 1 }, openingDraw: 0 },
+    { maxEnergy: 1, turnEnergy: {}, openingDraw: 1 },
+  ][tier];
+}
+
+function getEnergyModifiers(turn = 1) {
+  const boatswain = getBoatswainModifiers();
+  const maxEnergy = Math.min(4, 3 + boatswain.maxEnergy + (hasArtifact("tyrantFleetSeal") ? 1 : 0));
+  let turnEnergy = boatswain.turnEnergy[turn] || 0;
+  if (turn === 1 && hasArtifact("navigatorHourglass")) turnEnergy += 1;
+  if (turn % 3 === 0 && hasArtifact("brassCapacitor")) turnEnergy += 1;
+  return {
+    maxEnergy,
+    handSize: hasArtifact("tyrantFleetSeal") ? 4 : 5,
+    openingDrawBonus: boatswain.openingDraw,
+    turnEnergy,
+  };
 }
 
 function sumCrewRoleEffect(roleId, valueForMember) {
@@ -647,6 +688,7 @@ function hasTrait(id) {
 function getCrewPower() {
   if (!run) return 0;
   let total = 8 + run.crew.reduce((sum, member) => sum + member.power, 0);
+  total += run.combat?.boardingPowerBonus || 0;
   total += getMarineBoardingBonus();
   total += run.crew.filter((member) => member.trait.id === "scarred").length * 2;
   if (hasArtifact("kraken")) total += 5;
@@ -1255,11 +1297,12 @@ function rollWind() {
   return { direction, speed: randomInt(1, 3) };
 }
 
-function energyOptions() {
-  return { maxEnergy: 3, handSize: 5, handLimit: 8 };
+function energyOptions(turn = 1) {
+  return { ...getEnergyModifiers(turn), handLimit: 8 };
 }
 
 function startCombat(kind) {
+  const cardOptions = energyOptions(1);
   const enemyCount = FleetCombat.enemyCount(run.mapId, kind, run.actIndex, Math.random);
   const enemies = [];
   const excludedNames = [];
@@ -1287,6 +1330,13 @@ function startCombat(kind) {
   });
   const leadEnemy = enemies[0];
   run.mode = "combat";
+  const cardState = typeof CardEngine === "undefined"
+    ? null
+    : CardEngine.createState(run.deck || CardDefinitions.STARTER_DECK, Math.random, cardOptions);
+  if (cardState) {
+    cardState.energy += cardOptions.turnEnergy;
+    CardEngine.drawCards(cardState, cardOptions.openingDrawBonus, Math.random);
+  }
   run.combat = {
     enemies,
     focusedEnemyId: leadEnemy.id,
@@ -1302,9 +1352,11 @@ function startCombat(kind) {
     firstShotUsed: false,
     victoryScheduled: false,
     enemyActions: 0,
-    cardState: typeof CardEngine === "undefined"
-      ? null
-      : CardEngine.createState(run.deck || CardDefinitions.STARTER_DECK, Math.random, energyOptions()),
+    cardState,
+    smugglerPulleyUsed: false,
+    frugalUsed: false,
+    rallyingUsed: false,
+    boardingPowerBonus: 0,
     message: enemies.length > 1
       ? `${leadEnemy.name}을 기함으로 한 적 함대가 포문을 열었다.`
       : `${withJosa(leadEnemy.name, "이", "가")} 포문을 열었다.`,
@@ -1386,6 +1438,12 @@ function cardTargetId(target) {
 
 function cardTargetCandidates(card) {
   if (!run?.combat || !card) return [];
+  if (card.id === "navigator_reposition") {
+    return [
+      { type: "sea", id: "sea", range: 1 },
+      { type: "sea", id: "sea", range: 3 },
+    ];
+  }
   if (["approach", "tailwind_charge", "ram"].includes(card.id)) {
     return FleetCombat.livingEnemies(run.combat.enemies).map((enemy) => ({ type: "enemy", id: enemy.id }));
   }
@@ -1410,6 +1468,12 @@ function maneuverUseError(cardId, enemy = null) {
   return null;
 }
 
+function effectiveCardCost(instance) {
+  const card = instance ? CardDefinitions.getCard(instance.cardId) : null;
+  const frugalDiscount = hasTrait("frugal") && !run.combat.frugalUsed ? 1 : 0;
+  return Math.max(0, (card?.cost || 0) + (instance?.costDelta || 0) - frugalDiscount);
+}
+
 function cardUseError(instanceId, target) {
   if (!run || run.mode !== "combat" || !run.combat?.cardState) return "전투 중에만 카드를 사용할 수 있습니다.";
   if (!ui.modalLayer.hidden) return "모달이 열린 동안에는 카드를 사용할 수 없습니다.";
@@ -1418,13 +1482,18 @@ function cardUseError(instanceId, target) {
   if (!instance) return "손패에 없는 카드입니다.";
   const card = CardDefinitions.getCard(instance.cardId);
   if (!card) return "알 수 없는 카드입니다.";
-  if (card.captainId) return "현재는 공용 카드만 사용할 수 있습니다.";
-  if (!CardEngine.canPay(run.combat.cardState, instanceId)) return "에너지가 부족합니다.";
+  if (card.captainId && card.captainId !== captain().id) return "다른 선장 전용 카드는 사용할 수 없습니다.";
+  if (run.combat.cardState.energy < effectiveCardCost(instance)) return "에너지가 부족합니다.";
+  if (card.id === "navigator_reposition"
+    && (typeof target !== "object" || ![1, 3].includes(target?.range))) {
+    return "완전 재배치는 거리 1 또는 3을 선택해야 합니다.";
+  }
 
   const targetId = cardTargetId(target);
   const targetCandidate = cardTargetCandidates(card).find((candidate) => (
     candidate.id === targetId
     && (typeof target !== "object" || !target?.type || target.type === candidate.type)
+    && (candidate.range === undefined || target?.range === candidate.range)
   ));
   if (!targetCandidate) return "유효하지 않은 대상입니다.";
   const enemy = targetCandidate.type === "enemy" ? findEnemy(targetId) : null;
@@ -1449,7 +1518,7 @@ function validTargets(instanceId) {
   const instance = findHandInstance(instanceId);
   const card = instance ? CardDefinitions.getCard(instance.cardId) : null;
   if (!card) return [];
-  return cardTargetCandidates(card).filter((candidate) => cardUseError(instanceId, candidate.id) === null);
+  return cardTargetCandidates(card).filter((candidate) => cardUseError(instanceId, candidate) === null);
 }
 
 function makeCardResolution() {
@@ -1457,23 +1526,37 @@ function makeCardResolution() {
 }
 
 function recordEnemyDamage(resolution, enemy, before) {
+  const existing = resolution.damageByEnemy[enemy.id] || { hull: 0, sails: 0, crew: 0 };
   resolution.damageByEnemy[enemy.id] = {
-    hull: Math.max(0, before.hull - enemy.hull),
-    sails: Math.max(0, before.sails - enemy.sails),
-    crew: Math.max(0, before.crew - enemy.crew),
+    hull: existing.hull + Math.max(0, before.hull - enemy.hull),
+    sails: existing.sails + Math.max(0, before.sails - enemy.sails),
+    crew: existing.crew + Math.max(0, before.crew - enemy.crew),
   };
+}
+
+function dealEnemyHullDamage(enemy, amount) {
+  let hullDamage = amount;
+  if (hullDamage > 0 && enemy.abyssMarkCharges > 0) {
+    hullDamage += 4;
+    enemy.abyssMarkCharges -= 1;
+  }
+  enemy.hull -= hullDamage;
+  return hullDamage;
 }
 
 function damageEnemy(enemy, damage, resolution) {
   const before = { hull: enemy.hull, sails: enemy.sails, crew: enemy.crew };
-  enemy.hull -= damage.hull || 0;
+  dealEnemyHullDamage(enemy, damage.hull || 0);
   enemy.sails -= damage.sails || 0;
   enemy.crew -= damage.crew || 0;
   recordEnemyDamage(resolution, enemy, before);
 }
 
 function fireHits(enemy, shotType, chanceDelta = 0) {
-  return consumeGuaranteedFirstShot() || Math.random() <= clamp(playerHitChance(shotType, enemy) + chanceDelta, 0, 1);
+  const preparedBonus = run.combat.nextShotAccuracyBonus || 0;
+  run.combat.nextShotAccuracyBonus = 0;
+  return consumeGuaranteedFirstShot()
+    || Math.random() <= clamp(playerHitChance(shotType, enemy) + chanceDelta + preparedBonus, 0, 1);
 }
 
 function drawForCard(count) {
@@ -1596,6 +1679,134 @@ function executePublicCard(cardId, target) {
   return resolution;
 }
 
+function drawRandomArtilleryCard() {
+  const state = run.combat.cardState;
+  if (state.hand.length >= state.handLimit) return null;
+  const candidates = state.drawPile
+    .map((instance, index) => ({ instance, index }))
+    .filter(({ instance }) => CardDefinitions.getCard(instance.cardId)?.family === "포격");
+  if (candidates.length === 0) return null;
+  const selected = candidates[Math.floor(Math.random() * candidates.length)];
+  const [instance] = state.drawPile.splice(selected.index, 1);
+  instance.costDelta = -1;
+  state.hand.push(instance);
+  return instance;
+}
+
+function executeCaptainCard(cardId, target) {
+  const resolution = makeCardResolution();
+  const combat = run.combat;
+  const enemy = findEnemy(cardTargetId(target));
+  const living = FleetCombat.livingEnemies(combat.enemies);
+  const playerHullBefore = run.hull;
+  const moraleBefore = run.morale;
+  const cardName = CardDefinitions.getCard(cardId)?.name || cardId;
+
+  if (cardId === "gunner_steady_aim") {
+    combat.nextShotAccuracyBonus = 0.15;
+    resolution.cardsDrawn = drawForCard(1);
+  } else if (cardId === "gunner_shrapnel") {
+    if (fireHits(enemy, "fire")) {
+      damageEnemy(enemy, { hull: Math.max(1, Math.round(cannonDamage() * 0.6)), crew: 2 }, resolution);
+    }
+  } else if (cardId === "gunner_double_broadside") {
+    for (let shot = 0; shot < 2; shot += 1) {
+      if (fireHits(enemy, "fire")) {
+        damageEnemy(enemy, { hull: Math.max(1, Math.round(cannonDamage() * 0.7)) }, resolution);
+      }
+    }
+  } else if (cardId === "gunner_powder_shift") {
+    resolution.cardsDrawn = drawRandomArtilleryCard() ? 1 : 0;
+  } else if (cardId === "gunner_overcharge") {
+    if (fireHits(enemy, "fire")) damageEnemy(enemy, { hull: cannonDamage() + 8, sails: 5 }, resolution);
+    run.sails -= 3;
+  } else if (cardId === "gunner_magazine_open") {
+    damageEnemy(enemy, { hull: 18 + getCannonPower() }, resolution);
+    run.hull -= 6;
+  } else if (cardId === "gunner_fleet_broadside") {
+    const damage = 10 + getCannonPower() * 0.5;
+    living.forEach((candidate) => damageEnemy(candidate, { hull: damage, sails: 3 }, resolution));
+    run.hull -= 4;
+  } else if (cardId === "navigator_read_wind") {
+    combat.wind = rollWind();
+    if (combat.wind.direction === "순풍") combat.cardState.energy += 1;
+  } else if (cardId === "navigator_raise_sails") {
+    run.sails = Math.min(run.maxSails, run.sails + 5);
+    resolution.cardsDrawn = drawForCard(1);
+  } else if (cardId === "navigator_crosswind_turn") {
+    living.forEach((candidate) => setEnemyRange(candidate.id, 2));
+    combat.evasion = 0.2;
+  } else if (cardId === "navigator_wave_ride") {
+    if (run.sails >= run.maxSails / 2) resolution.cardsDrawn = drawForCard(2);
+  } else if (cardId === "navigator_tailwind_route") {
+    combat.wind = { direction: "순풍", speed: combat.wind.speed };
+    combat.tailwindUntilTurn = combat.cardState.turn + 1;
+  } else if (cardId === "navigator_reposition") {
+    const range = target.range;
+    living.forEach((candidate) => setEnemyRange(candidate.id, range));
+    combat.evasion = 0.6;
+  } else if (cardId === "navigator_storm_corridor") {
+    living.forEach((candidate) => {
+      damageEnemy(candidate, { sails: 7 }, resolution);
+      setEnemyRange(candidate.id, enemyRange(candidate.id) + 1);
+    });
+    combat.evasion = 0.3;
+  } else if (cardId === "mystic_abyss_mark") {
+    enemy.abyssMarkCharges = 2;
+  } else if (cardId === "mystic_cursed_tide") {
+    damageEnemy(enemy, { hull: 4, sails: 6, crew: 2 }, resolution);
+  } else if (cardId === "mystic_fear_whisper") {
+    combat.nextEnemyAttackReduction = 0.4;
+    run.morale = Math.min(100, run.morale + 3);
+  } else if (cardId === "mystic_dark_prophecy") {
+    resolution.cardsDrawn = drawForCard(2);
+  } else if (cardId === "mystic_blood_pact") {
+    run.morale -= 5;
+    combat.cardState.energy += 2;
+  } else if (cardId === "mystic_open_abyss") {
+    damageEnemy(enemy, { hull: 12, sails: 10, crew: 4 }, resolution);
+  } else if (cardId === "mystic_abyss_chorus") {
+    living.forEach((candidate) => damageEnemy(candidate, { hull: 8, sails: 8, crew: 3 }, resolution));
+    run.morale = Math.min(100, run.morale + living.length * 2);
+  } else if (cardId === "revenant_dead_nails") {
+    run.hull = Math.min(run.maxHull, run.hull + 5);
+    run.morale -= 2;
+  } else if (cardId === "revenant_ghost_deckhand") {
+    combat.boardingPowerBonus = 8;
+  } else if (cardId === "revenant_soul_drain") {
+    damageEnemy(enemy, { hull: 10 }, resolution);
+    run.hull = Math.min(run.maxHull, run.hull + 6);
+  } else if (cardId === "revenant_sinking_memory") {
+    if (run.hull <= run.maxHull / 2) {
+      resolution.cardsDrawn = drawForCard(2);
+      combat.cardState.energy += 1;
+    }
+  } else if (cardId === "revenant_death_delay") {
+    combat.deathDelayReady = true;
+  } else if (cardId === "revenant_return_abyss") {
+    damageEnemy(enemy, { hull: 18 }, resolution);
+    run.hull = Math.min(run.maxHull, run.hull + 12);
+    if (enemy.hull > 0 && enemy.crew > 0) run.morale -= 6;
+  } else if (cardId === "revenant_ghost_fleet") {
+    living.forEach((candidate) => damageEnemy(candidate, { hull: 10 }, resolution));
+    run.hull = Math.min(run.maxHull, run.hull + living.length * 3);
+  }
+
+  resolution.playerDamage = Math.max(0, playerHullBefore - run.hull);
+  resolution.moraleDelta = run.morale - moraleBefore;
+  combat.message = cardName;
+  return resolution;
+}
+
+function applyDeathDelay() {
+  if (run.hull <= 0 && run.combat.deathDelayReady) {
+    run.hull = 1;
+    run.combat.deathDelayReady = false;
+    return true;
+  }
+  return false;
+}
+
 function applyResolution(resolution) {
   run.combat.enemies.forEach((enemy) => {
     enemy.hull = Math.max(0, enemy.hull);
@@ -1603,6 +1814,7 @@ function applyResolution(resolution) {
     enemy.crew = Math.max(0, enemy.crew);
     if (!enemy.captured && (enemy.hull <= 0 || enemy.crew <= 0)) enemy.defeated = true;
   });
+  applyDeathDelay();
   run.hull = Math.max(0, run.hull);
   run.sails = Math.max(0, run.sails);
   run.morale = Math.max(0, run.morale);
@@ -1637,8 +1849,24 @@ function playCard(instanceId, target) {
   if (error) return false;
   const instance = findHandInstance(instanceId);
   const card = CardDefinitions.getCard(instance.cardId);
+  const combat = run.combat;
+  const usesFrugal = hasTrait("frugal") && !combat.frugalUsed;
+  const cost = effectiveCardCost(instance);
+  const energyBefore = combat.cardState.energy;
+  if (usesFrugal) instance.costDelta -= 1;
   CardEngine.spendForCard(run.combat.cardState, instanceId);
-  const resolution = executePublicCard(card.id, target);
+  if (usesFrugal) combat.frugalUsed = true;
+  if (hasTrait("rallying") && !combat.rallyingUsed && energyBefore > 0 && combat.cardState.energy === 0) {
+    combat.cardState.energy += 1;
+    combat.rallyingUsed = true;
+  }
+  if (hasArtifact("smugglerPulley") && !combat.smugglerPulleyUsed && cost === 0) {
+    combat.cardState.energy += 1;
+    combat.smugglerPulleyUsed = true;
+  }
+  const resolution = card.captainId
+    ? executeCaptainCard(card.id, target)
+    : executePublicCard(card.id, target);
   CardEngine.finishCard(run.combat.cardState, instanceId, card.exhaust);
   applyResolution(resolution);
   recordCardUse(card, resolution);
@@ -1649,24 +1877,35 @@ function playCard(instanceId, target) {
 function endPlayerTurn() {
   if (!run || run.mode !== "combat" || run.combat.locked || run.combat.victoryScheduled) return;
   CardEngine.endPlayerTurn(run.combat.cardState);
+  run.combat.boardingPowerBonus = 0;
   run.combat.locked = true;
   renderActionDock();
   setTimeout(startEnemyTurn, 300);
 }
 
-function useCaptainSkill() {
-  if (!run || run.mode !== "combat" || run.combat.locked || run.combat.victoryScheduled) return false;
-  if (!ui.modalLayer.hidden) return false;
+function captainSkillError(target) {
+  if (!run || run.mode !== "combat" || !run.combat) return "전투 중에만 선장 기술을 사용할 수 있습니다.";
+  if (!ui.modalLayer.hidden) return "모달이 열린 동안에는 선장 기술을 사용할 수 없습니다.";
+  if (run.combat.locked || run.combat.victoryScheduled) return "지금은 선장 기술을 사용할 수 없습니다.";
+  if (!run.combat.skillReady) return "이번 전투에서는 이미 선장 기술을 사용했습니다.";
+  const targetId = target === undefined ? run.combat.focusedEnemyId : cardTargetId(target);
+  const enemy = findEnemy(targetId);
+  if (!enemy || enemy.defeated || enemy.captured) return "유효한 적 대상을 선택해야 합니다.";
+  return null;
+}
+
+function useCaptainSkill(target) {
+  if (captainSkillError(target)) return false;
   const combat = run.combat;
-  const enemy = focusedEnemy();
-  if (!enemy || !combat.skillReady) return false;
+  const targetId = target === undefined ? combat.focusedEnemyId : cardTargetId(target);
+  const enemy = findEnemy(targetId);
   const enemyHullBefore = enemy.hull;
   const playerHullBefore = run.hull;
   combat.skillReady = false;
 
   if (captain().id === "gunner") {
     const damage = 16 + Math.floor(getCannonPower() * 0.8) + (hasArtifact("powder") ? 3 : 0);
-    enemy.hull -= damage;
+    dealEnemyHullDamage(enemy, damage);
     enemy.sails -= 4;
     combat.message = `전탄 일제사격! 적 선체에 ${damage} 피해.`;
     addCannonEffect("player", true);
@@ -1680,7 +1919,7 @@ function useCaptainSkill() {
     combat.message = `폭풍 가르기! 사선을 벗어나 돛을 복구하고 적 돛에 ${stormDamage} 피해를 입혔다.`;
     playTone(720, 0.15, "triangle");
   } else if (captain().id === "mystic") {
-    enemy.hull -= 6;
+    dealEnemyHullDamage(enemy, 6);
     enemy.sails -= 7;
     enemy.crew = Math.max(0, enemy.crew - 4);
     run.morale = clamp(run.morale + 5, 0, 100);
@@ -1689,7 +1928,7 @@ function useCaptainSkill() {
   } else {
     const damage = 10 + Math.floor(getCannonPower() * 0.5);
     const heal = 8 + getCarpenterRepairBonus();
-    enemy.hull -= damage;
+    dealEnemyHullDamage(enemy, damage);
     enemy.sails -= 5;
     run.hull = Math.min(run.maxHull, run.hull + heal);
     combat.message = `저승의 진혼곡! 적에게 ${damage} 피해를 주고 선체 ${heal}을 되돌렸다.`;
@@ -1861,11 +2100,13 @@ function canDirectAttack(enemy) {
 
 function performEnemyAttack(enemy) {
   let message = "";
+  const damageReduction = run.combat.nextEnemyAttackReduction || 0;
+  run.combat.nextEnemyAttackReduction = 0;
   enemy.intent = "attack";
   enemy.intentReady = false;
 
   if (enemyRange(enemy.id) === 1 && enemy.crew > getCrewPower() * 0.8 && Math.random() < 0.3) {
-    const damage = randomInt(4, 7) + run.actIndex;
+    const damage = Math.round((randomInt(4, 7) + run.actIndex) * (1 - damageReduction));
     run.hull -= damage;
     run.morale -= 5;
     message = `${enemy.name} 선원들이 난입했다. 선체 피해 ${damage}, 사기 -5.`;
@@ -1877,7 +2118,7 @@ function performEnemyAttack(enemy) {
       0.88,
     );
     if (Math.random() < hitChance) {
-      const damage = enemy.damage + randomInt(0, 4);
+      const damage = Math.round((enemy.damage + randomInt(0, 4)) * (1 - damageReduction));
       run.hull -= damage;
       run.morale -= 2;
       if (Math.random() < 0.28) {
@@ -1895,6 +2136,7 @@ function performEnemyAttack(enemy) {
     }
   }
 
+  applyDeathDelay();
   return { enemyId: enemy.id, type: "attack", directAttack: true, message };
 }
 
@@ -1965,11 +2207,15 @@ function finishEnemyTurn() {
   combat.locked = false;
   combat.message = actions.map((action) => action.message).join(" ");
   combat.evasion = 0;
+  applyDeathDelay();
   run.hull = Math.max(0, run.hull);
   run.sails = Math.max(0, run.sails);
   run.morale = Math.max(0, run.morale);
 
-  if (Math.random() < 0.28) {
+  const nextPlayerTurn = (combat.cardState?.turn || combat.turn) + 1;
+  if (combat.tailwindUntilTurn >= nextPlayerTurn) {
+    combat.wind = { direction: "순풍", speed: combat.wind.speed };
+  } else if (Math.random() < 0.28) {
     combat.wind = rollWind();
     combat.message += ` 바람이 ${combat.wind.direction} ${combat.wind.speed}단계로 바뀌었다.`;
   }
@@ -1978,8 +2224,14 @@ function finishEnemyTurn() {
   combat.log = [combat.message, ...(combat.log || [])].slice(0, 3);
   const defeated = checkDefeat();
   if (!defeated && run.mode === "combat" && combat.cardState && !combat.victoryScheduled) {
-    CardEngine.startPlayerTurn(combat.cardState, {}, Math.random);
+    const modifiers = getEnergyModifiers(nextPlayerTurn);
+    CardEngine.startPlayerTurn(combat.cardState, { energy: modifiers.turnEnergy }, Math.random);
     combat.turn = combat.cardState.turn;
+    combat.smugglerPulleyUsed = false;
+    combat.boardingPowerBonus = 0;
+    if (combat.tailwindUntilTurn >= combat.cardState.turn) {
+      combat.wind = { direction: "순풍", speed: combat.wind.speed };
+    }
   }
   updateHud();
   renderActionDock();
