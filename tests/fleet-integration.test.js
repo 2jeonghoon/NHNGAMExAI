@@ -205,3 +205,37 @@ test("연속 적 턴의 직접 공격자는 함대 순서대로 순환한다", (
 
   assert.deepEqual(JSON.parse(JSON.stringify(result)), ["enemy-0", "enemy-1"]);
 });
+
+test("첫 적 행동으로 사기가 0이 되면 남은 함대 행동을 즉시 중단한다", () => {
+  const result = runFleetGame(`
+    run = makeTestRun({
+      mapId: "abyss", actIndex: 1, artifacts: [], crew: [], logs: [], repairKits: 2,
+      infamy: 0, cannons: 6, hull: 100, maxHull: 100, morale: 2, safetyNetCharges: 0,
+    });
+    Math.random = () => 0.1;
+    startCombat("elite");
+    run.morale = 2;
+    run.combat.enemies.forEach((enemy) => { enemy.range = 2; enemy.damage = 1; });
+    const actions = startEnemyTurn();
+    ({ actions: actions.length, mode: run.mode, deathCause: run.deathCause });
+  `);
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { actions: 1, mode: "gameover", deathCause: "morale" });
+});
+
+test("구사일생이 첫 선체 치명타를 막으면 남은 함대 행동을 계속한다", () => {
+  const result = runFleetGame(`
+    run = makeTestRun({
+      mapId: "abyss", actIndex: 1, artifacts: [], crew: [], logs: [], repairKits: 2,
+      infamy: 0, cannons: 6, hull: 1, maxHull: 100, morale: 50, safetyNetCharges: 1,
+    });
+    Math.random = () => 0.1;
+    startCombat("elite");
+    run.hull = 1;
+    run.morale = 50;
+    run.safetyNetCharges = 1;
+    run.combat.enemies.forEach((enemy) => { enemy.range = 2; enemy.damage = 1; });
+    const actions = startEnemyTurn();
+    ({ actions: actions.length, safetyNetCharges: run.safetyNetCharges, deathCause: run.deathCause || null });
+  `);
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { actions: 2, safetyNetCharges: 0, deathCause: "hull" });
+});

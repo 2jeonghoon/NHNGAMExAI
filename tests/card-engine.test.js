@@ -45,12 +45,18 @@ test("지속 최대 에너지는 4로 제한되고 일반 턴 충전도 이를 �
   assert.equal(state.energy, 4);
 });
 
-test("소멸 카드는 재순환하지 않고 손패는 8장을 넘지 않는다", () => {
+test("소멸 카드는 버림 더미가 재순환된 뒤에도 다시 나타나지 않고 손패는 8장을 넘지 않는다", () => {
   const { engine, state } = makeTenCardState();
   const first = state.hand[0];
   engine.finishCard(state, first.instanceId, true);
+  engine.endPlayerTurn(state);
+  state.drawPile.splice(0).forEach((card) => state.discardPile.push(card));
+  assert.equal(state.drawPile.length, 0);
   engine.drawCards(state, 20, () => 0);
   assert.equal(state.exhaustPile.some((card) => card.instanceId === first.instanceId), true);
+  assert.equal(state.hand.some((card) => card.instanceId === first.instanceId), false);
+  assert.equal(state.drawPile.some((card) => card.instanceId === first.instanceId), false);
+  assert.equal(state.discardPile.some((card) => card.instanceId === first.instanceId), false);
   assert.equal(state.hand.length, 8);
 });
 

@@ -53,7 +53,7 @@ test("카드 진행과 에너지, 대상, 턴, 함대 결과를 직렬화한다"
   seedRuns([]);
   Analytics.startRun("mystic", "abyss");
   Analytics.recordCardUse("mystic_open_abyss", "fire", 3, 1);
-  Analytics.recordCardUse("mystic_abyss_chorus", "fire", 3, 3);
+  Analytics.recordCardUse("mystic_abyss_chorus", "fire", 3, 3, "area");
   Analytics.recordCardAcquired("mystic_open_abyss");
   Analytics.recordCardRemoved("fire");
   Analytics.recordCombatStart();
@@ -68,6 +68,11 @@ test("카드 진행과 에너지, 대상, 턴, 함대 결과를 직렬화한다"
   assert.deepEqual(Array.from(run.cardsRemoved), ["fire"]);
   assert.equal(run.energySpent, 6);
   assert.equal(run.cardTargetCount, 4);
+  assert.deepEqual({ ...run.cardHitBreakdown }, { singleTarget: 1, area: 3 });
+  assert.deepEqual(JSON.parse(JSON.stringify(run.cardHitsByCard)), {
+    mystic_open_abyss: { singleTarget: 1, area: 0 },
+    mystic_abyss_chorus: { singleTarget: 0, area: 3 },
+  });
   assert.equal(run.playerTurns, 2);
   assert.deepEqual(Array.from(run.playerTurnsByCombat), [2]);
   assert.equal(run.eventCounts["card_acquired:mystic_open_abyss"], undefined);
@@ -121,7 +126,7 @@ test("실제 카드 사용과 시작한 플레이어 턴이 분석 인자를 기
     return recorded;
   })())`));
 
-  assert.deepEqual(result, { actions: [], cards: [["aimed_fire", "fire", 1, 1]], turns: 1 });
+  assert.deepEqual(result, { actions: [], cards: [["aimed_fire", "fire", 1, 1, "singleTarget"]], turns: 1 });
 });
 
 test("비포수 선장 카드도 기존 명령 계열 하나로 집계한다", () => {
@@ -137,7 +142,7 @@ test("비포수 선장 카드도 기존 명령 계열 하나로 집계한다", (
 
   assert.deepEqual(result, {
     actions: [],
-    card: ["navigator_read_wind", "approach", 0, 0],
+    card: ["navigator_read_wind", "approach", 0, 0, "singleTarget"],
   });
 });
 
@@ -152,7 +157,7 @@ test("광역 카드가 빗나간 적은 적중 대상 수에 포함하지 않는
     return recorded;
   })())`));
 
-  assert.deepEqual(result, ["barrage_fire", "fire", 2, 0]);
+  assert.deepEqual(result, ["barrage_fire", "fire", 2, 0, "area"]);
 });
 
 test("전투 결과는 함대당 한 번 기록하고 항해 종료 덱을 넘긴다", () => {

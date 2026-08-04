@@ -119,9 +119,16 @@ test("전투 드롭 대상은 적선과 아군선, 바다, 적 함대 영역을 
     "enemy:e1",
     "self:self",
     "sea:sea",
+    "sea:sea",
     "allEnemies:allEnemies",
   ]);
   targets.forEach(({ rect }) => assert.equal(isInsideCanvas(rect, 1200, 700), true));
+});
+
+test("완전 재배치용 가까운 해역과 먼 해역은 겹치지 않는 별도 드롭 영역이다", () => {
+  const targets = dropTargetsFor([enemyState("e0")]).filter((target) => target.type === "sea");
+  assert.deepEqual(targets.map(({ range }) => range), [1, 3]);
+  assert.equal(anyOverlap(targets.map((target) => target.rect)), false);
 });
 
 test("각 적선은 개별 거리와 의도 및 포커스 상태로 렌더링된다", () => {

@@ -260,6 +260,13 @@ function enemyCenter(ui, enemyId) {
   })())`));
 }
 
+function seaCenter(ui, range) {
+  return JSON.parse(read(ui.context, `JSON.stringify((() => {
+    const target = combatDropTargets().find((candidate) => candidate.type === "sea" && candidate.range === ${range});
+    return { x: (target.rect.left + target.rect.right) / 2, y: (target.rect.top + target.rect.bottom) / 2 };
+  })())`));
+}
+
 test("유효한 적 드롭은 애니메이션 뒤 한 번만 카드를 실행한다", () => {
   const ui = renderHandWith(["fire"], { enemies: 2, energy: 3 });
   const target = enemyCenter(ui, "enemy-1");
@@ -381,6 +388,17 @@ test("pointercancel은 드래그를 복귀시키고 stale animation 콜백을 �
   ui.pointerMove(enemyCenter(ui, "enemy-0"));
   ui.pointerCancel();
 
+  assert.equal(ui.dragPhase, "returning");
+  ui.finishAnimationTwice();
+  assert.equal(ui.playCalls.length, 0);
+  assert.equal(ui.energy, 3);
+});
+
+test("비행 단계에 들어간 뒤 취소해도 stale 비행 콜백은 카드를 실행하지 않는다", () => {
+  const ui = renderHandWith(["fire"]);
+  ui.dragTo(enemyCenter(ui, "enemy-0"));
+  assert.equal(ui.dragPhase, "flying");
+  ui.key("Escape");
   assert.equal(ui.dragPhase, "returning");
   ui.finishAnimationTwice();
   assert.equal(ui.playCalls.length, 0);
@@ -515,6 +533,26 @@ test("완전 재배치는 거리 1과 3을 선택 가능한 대상으로 노출�
   ui.key("Enter");
   ui.finishAnimationTwice();
   assert.equal(ui.playCalls[0].target.range, 3);
+});
+
+for (const range of [1, 3]) {
+  test(`완전 재배치는 포인터로 거리 ${range} 해역에 드롭할 수 있다`, () => {
+    const ui = renderHandWith(["navigator_reposition"], { captainId: "navigator", energy: 3 });
+    ui.dragTo(seaCenter(ui, range));
+    ui.finishAnimationTwice();
+    assert.equal(ui.playCalls.length, 1);
+    assert.equal(ui.playCalls[0].target.range, range);
+  });
+}
+
+test("알 수 없는 카드 인스턴스는 손패 렌더링에서 건너뛴다", () => {
+  const ui = renderHandWith(["fire"]);
+  read(ui.context, `
+    run.combat.cardState.hand.push({ instanceId: "broken-card", cardId: "missing_card", costDelta: 0 });
+    renderCombatHand();
+  `);
+  assert.equal(ui.actionDock.querySelectorAll(".combat-card").length, 1);
+  assert.equal(ui.actionDock.querySelector(".combat-card-name").textContent, "선체 포격");
 });
 
 test("reduced motion에서는 전투 dock 클래스를 선택하고 0ms 뒤 실행한다", () => {

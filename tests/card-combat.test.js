@@ -319,6 +319,55 @@ test("광역 격파는 세 적의 결과를 함께 적용하고 승리를 한 �
   assert.equal(read(context, "run.combat.enemyActions"), 0);
 });
 
+test("카드 포격은 명중과 빗나감 효과를 만들고 광역 표적은 80ms 간격으로 예약한다", () => {
+  const context = combatWithHand(["barrage_fire"], 3, { enemyCount: 3 });
+  const result = JSON.parse(read(context, `JSON.stringify((() => {
+    const scheduled = [];
+    const effects = [];
+    randomValues = [0, 0, 0.99, 0, 0, 0, 0, 0];
+    Math.random = () => randomValues.shift() ?? 0;
+    setTimeout = (callback, delay) => {
+      if (delay === 80 || delay === 160) scheduled.push({ callback, delay });
+      return scheduled.length;
+    };
+    addCannonEffect = (_source, broadside, missed, enemyId) => effects.push({ broadside, missed, enemyId });
+    const instance = run.combat.cardState.hand[0];
+    playCard(instance.instanceId, "allEnemies");
+    scheduled.forEach(({ callback }) => callback());
+    return { effects, delays: scheduled.map(({ delay }) => delay), hulls: run.combat.enemies.map(({ hull }) => hull) };
+  })())`));
+  assert.deepEqual(result.delays, [80, 160]);
+  assert.deepEqual(result.effects.map(({ enemyId, missed }) => ({ enemyId, missed })), [
+    { enemyId: "enemy-0", missed: false },
+    { enemyId: "enemy-1", missed: true },
+    { enemyId: "enemy-2", missed: false },
+  ]);
+  assert.deepEqual(result.hulls, [95, 100, 95]);
+});
+
+test("항해 덱의 알 수 없는 카드 ID는 전투 시작 전에 제외하고 각각 기록한다", () => {
+  const context = loadGameScripts([
+    "src/analytics.js", "src/card-definitions.js", "src/card-engine.js", "src/fleet-combat.js", "src/game.js",
+  ]);
+  const result = JSON.parse(read(context, `JSON.stringify((() => {
+    run = makeTestRun({
+      mapId: "calm", captainId: "gunner", artifacts: [], crew: [], logs: [], cannons: 6,
+      repairKits: 2, deck: ["fire", "missing_one", "chain", "missing_two"], safetyNetCharges: 0,
+    });
+    Math.random = () => 0;
+    startCombat("battle");
+    return {
+      deck: run.deck,
+      instances: [...run.combat.cardState.hand, ...run.combat.cardState.drawPile].map(({ cardId }) => cardId),
+      logs: run.logs,
+    };
+  })())`));
+  assert.deepEqual(result.deck, ["fire", "chain"]);
+  assert.deepEqual(result.instances.sort(), ["chain", "fire"]);
+  assert.equal(result.logs.filter((line) => line.includes("missing_one")).length, 1);
+  assert.equal(result.logs.filter((line) => line.includes("missing_two")).length, 1);
+});
+
 test("항해와 전투 시작은 독립 덱과 카드 상태를 초기화한다", () => {
   const context = loadGameScripts([
     "src/analytics.js", "src/card-definitions.js", "src/card-engine.js", "src/fleet-combat.js", "src/game.js",

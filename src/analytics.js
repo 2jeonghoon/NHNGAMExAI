@@ -61,6 +61,8 @@ const Analytics = (() => {
       boardingsCaptured: 0,
       actionCounts: emptyCounts(ACTIONS),
       cardUses: {},
+      cardHitBreakdown: { singleTarget: 0, area: 0 },
+      cardHitsByCard: {},
       cardsAcquired: [],
       cardsRemoved: [],
       energySpent: 0,
@@ -110,13 +112,19 @@ const Analytics = (() => {
     current.damageTaken += Math.max(0, taken || 0);
   }
 
-  function recordCardUse(cardId, family, energy, targetCount) {
+  function recordCardUse(cardId, family, energy, targetCount, targetMode = "singleTarget") {
     if (!cardId) return;
     if (family) Analytics.addAction(family);
     if (!current) return;
     current.cardUses[cardId] = (current.cardUses[cardId] || 0) + 1;
     current.energySpent += Math.max(0, Number(energy) || 0);
-    current.cardTargetCount += Math.max(0, Number(targetCount) || 0);
+    const hits = Math.max(0, Number(targetCount) || 0);
+    const bucket = targetMode === "area" ? "area" : "singleTarget";
+    current.cardTargetCount += hits;
+    current.cardHitBreakdown[bucket] += hits;
+    const cardHits = current.cardHitsByCard[cardId] || { singleTarget: 0, area: 0 };
+    cardHits[bucket] += hits;
+    current.cardHitsByCard[cardId] = cardHits;
   }
 
   function recordCardAcquired(cardId) {

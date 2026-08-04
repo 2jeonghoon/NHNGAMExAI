@@ -1455,6 +1455,12 @@ function energyOptions(turn = 1) {
 
 function startCombat(kind) {
   const cardOptions = energyOptions(1);
+  const validDeck = [];
+  (run.deck || CardDefinitions.STARTER_DECK).forEach((cardId) => {
+    if (CardDefinitions.getCard(cardId)) validDeck.push(cardId);
+    else logEvent(`알 수 없는 카드 ${cardId}을(를) 덱에서 제외했다.`);
+  });
+  run.deck = validDeck;
   const enemyCount = FleetCombat.enemyCount(run.mapId, kind, run.actIndex, Math.random);
   const enemies = [];
   const excludedNames = [];
@@ -1484,7 +1490,7 @@ function startCombat(kind) {
   run.mode = "combat";
   const cardState = typeof CardEngine === "undefined"
     ? null
-    : CardEngine.createState(run.deck || CardDefinitions.STARTER_DECK, Math.random, cardOptions);
+    : CardEngine.createState(run.deck, Math.random, cardOptions);
   if (cardState) {
     cardState.energy += cardOptions.turnEnergy;
     CardEngine.drawCards(cardState, cardOptions.openingDrawBonus, Math.random);
@@ -1675,7 +1681,20 @@ function validTargets(instanceId) {
 }
 
 function makeCardResolution() {
-  return { damageByEnemy: {}, playerDamage: 0, moraleDelta: 0, cardsDrawn: 0, combatEnded: false };
+  return {
+    damageByEnemy: {}, playerDamage: 0, moraleDelta: 0, cardsDrawn: 0,
+    combatEnded: false, visualShots: [],
+  };
+}
+
+function recordCardShot(resolution, enemy, hit, broadside = false) {
+  const enemyAnchor = combatEffectAnchors({ source: "player", enemyId: enemy.id }).end;
+  resolution.visualShots.push({ enemyId: enemy.id, enemyAnchor, hit, broadside });
+  return hit;
+}
+
+function resolveCardShot(resolution, enemy, shotType, chanceDelta = 0, broadside = false) {
+  return recordCardShot(resolution, enemy, fireHits(enemy, shotType, chanceDelta), broadside);
 }
 
 function recordEnemyDamage(resolution, enemy, before) {
@@ -1746,22 +1765,22 @@ function executePublicCard(cardId, target) {
   const moraleBefore = run.morale;
   let message = CardDefinitions.getCard(cardId)?.name || cardId;
 
-  if (cardId === "fire" && fireHits(enemy, "fire")) {
+  if (cardId === "fire" && resolveCardShot(resolution, enemy, "fire")) {
     const hullDamage = cannonDamage();
     const crewDamage = Math.random() < 0.25 ? 1 : 0;
     damageEnemy(enemy, { hull: hullDamage, crew: crewDamage }, resolution);
     message = "포탄이 적 선체를 갈랐다.";
-  } else if (cardId === "aimed_fire" && fireHits(enemy, "fire", 0.15)) {
+  } else if (cardId === "aimed_fire" && resolveCardShot(resolution, enemy, "fire", 0.15)) {
     damageEnemy(enemy, { hull: cannonDamage() + 6 }, resolution);
     message = "조준 포격이 적 선체에 명중했다.";
   } else if (cardId === "rapid_fire") {
-    if (fireHits(enemy, "fire")) damageEnemy(enemy, { hull: Math.max(1, Math.round(cannonDamage() * 0.6)) }, resolution);
+    if (resolveCardShot(resolution, enemy, "fire")) damageEnemy(enemy, { hull: Math.max(1, Math.round(cannonDamage() * 0.6)) }, resolution);
     resolution.cardsDrawn = drawForCard(1);
-  } else if (cardId === "chain" && fireHits(enemy, "chain")) {
+  } else if (cardId === "chain" && resolveCardShot(resolution, enemy, "chain")) {
     damageEnemy(enemy, { sails: randomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0) }, resolution);
-  } else if (cardId === "heavy_chain" && fireHits(enemy, "chain")) {
+  } else if (cardId === "heavy_chain" && resolveCardShot(resolution, enemy, "chain")) {
     damageEnemy(enemy, { sails: randomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0) + 8 }, resolution);
-  } else if (cardId === "entangling_chain" && fireHits(enemy, "chain")) {
+  } else if (cardId === "entangling_chain" && resolveCardShot(resolution, enemy, "chain")) {
     damageEnemy(enemy, { sails: randomInt(3, 6) + getGunnerBonus() }, resolution);
     enemy.movementBlocked = true;
   } else if (["approach", "tailwind_charge", "ram"].includes(cardId)) {
@@ -1807,19 +1826,21 @@ function executePublicCard(cardId, target) {
     captureEnemy(enemy, chance, resolution);
   } else if (cardId === "grappling_hook") {
     damageEnemy(enemy, { sails: 5 }, resolution);
+    recordCardShot(resolution, enemy, true);
   } else if (cardId === "desperate_board") {
     const chance = clamp(0.42 + (getCrewPower() - enemy.crew) / 45 + (hasTrait("brave") ? 0.08 : 0) - 0.15, 0.15, 0.75);
     captureEnemy(enemy, chance, resolution);
   } else if (["barrage_fire", "chain_rain", "fireship"].includes(cardId)) {
     const outcomes = living.map((candidate) => {
       if (cardId === "barrage_fire") {
-        const hit = fireHits(candidate, "fire", -0.1);
+        const hit = resolveCardShot(resolution, candidate, "fire", -0.1);
         return { enemy: candidate, damage: hit ? { hull: Math.max(1, Math.round(cannonDamage() * 0.6)) } : {} };
       }
       if (cardId === "chain_rain") {
-        const hit = fireHits(candidate, "chain", -0.1);
+        const hit = resolveCardShot(resolution, candidate, "chain", -0.1);
         return { enemy: candidate, damage: hit ? { sails: 5 + getGunnerBonus() } : {} };
       }
+      recordCardShot(resolution, candidate, true);
       return { enemy: candidate, damage: { hull: 10, sails: 5 } };
     });
     outcomes.forEach((outcome) => damageEnemy(outcome.enemy, outcome.damage, resolution));
@@ -1859,26 +1880,30 @@ function executeCaptainCard(cardId, target) {
     combat.nextShotAccuracyBonus = 0.15;
     resolution.cardsDrawn = drawForCard(1);
   } else if (cardId === "gunner_shrapnel") {
-    if (fireHits(enemy, "fire")) {
+    if (resolveCardShot(resolution, enemy, "fire")) {
       damageEnemy(enemy, { hull: Math.max(1, Math.round(cannonDamage() * 0.6)), crew: 2 }, resolution);
     }
   } else if (cardId === "gunner_double_broadside") {
     for (let shot = 0; shot < 2; shot += 1) {
-      if (fireHits(enemy, "fire")) {
+      if (resolveCardShot(resolution, enemy, "fire", 0, true)) {
         damageEnemy(enemy, { hull: Math.max(1, Math.round(cannonDamage() * 0.7)) }, resolution);
       }
     }
   } else if (cardId === "gunner_powder_shift") {
     resolution.cardsDrawn = drawRandomArtilleryCard() ? 1 : 0;
   } else if (cardId === "gunner_overcharge") {
-    if (fireHits(enemy, "fire")) damageEnemy(enemy, { hull: cannonDamage() + 8, sails: 5 }, resolution);
+    if (resolveCardShot(resolution, enemy, "fire")) damageEnemy(enemy, { hull: cannonDamage() + 8, sails: 5 }, resolution);
     run.sails -= 3;
   } else if (cardId === "gunner_magazine_open") {
     damageEnemy(enemy, { hull: 18 + getCannonPower() }, resolution);
+    recordCardShot(resolution, enemy, true, true);
     run.hull -= 6;
   } else if (cardId === "gunner_fleet_broadside") {
     const damage = 10 + getCannonPower() * 0.5;
-    living.forEach((candidate) => damageEnemy(candidate, { hull: damage, sails: 3 }, resolution));
+    living.forEach((candidate) => {
+      damageEnemy(candidate, { hull: damage, sails: 3 }, resolution);
+      recordCardShot(resolution, candidate, true, true);
+    });
     run.hull -= 4;
   } else if (cardId === "navigator_read_wind") {
     combat.wind = rollWind();
@@ -1901,6 +1926,7 @@ function executeCaptainCard(cardId, target) {
   } else if (cardId === "navigator_storm_corridor") {
     living.forEach((candidate) => {
       damageEnemy(candidate, { sails: 7 }, resolution);
+      recordCardShot(resolution, candidate, true);
       setEnemyRange(candidate.id, enemyRange(candidate.id) + 1);
     });
     combat.evasion = 0.3;
@@ -1908,6 +1934,7 @@ function executeCaptainCard(cardId, target) {
     enemy.abyssMarkCharges = 2;
   } else if (cardId === "mystic_cursed_tide") {
     damageEnemy(enemy, { hull: 4, sails: 6, crew: 2 }, resolution);
+    recordCardShot(resolution, enemy, true);
   } else if (cardId === "mystic_fear_whisper") {
     combat.nextEnemyAttackReduction = 0.4;
     run.morale = Math.min(100, run.morale + 3);
@@ -1918,8 +1945,12 @@ function executeCaptainCard(cardId, target) {
     combat.cardState.energy += 2;
   } else if (cardId === "mystic_open_abyss") {
     damageEnemy(enemy, { hull: 12, sails: 10, crew: 4 }, resolution);
+    recordCardShot(resolution, enemy, true, true);
   } else if (cardId === "mystic_abyss_chorus") {
-    living.forEach((candidate) => damageEnemy(candidate, { hull: 8, sails: 8, crew: 3 }, resolution));
+    living.forEach((candidate) => {
+      damageEnemy(candidate, { hull: 8, sails: 8, crew: 3 }, resolution);
+      recordCardShot(resolution, candidate, true);
+    });
     run.morale = Math.min(100, run.morale + living.length * 2);
   } else if (cardId === "revenant_dead_nails") {
     run.hull = Math.min(run.maxHull, run.hull + 5);
@@ -1928,6 +1959,7 @@ function executeCaptainCard(cardId, target) {
     combat.boardingPowerBonus = 8;
   } else if (cardId === "revenant_soul_drain") {
     damageEnemy(enemy, { hull: 10 }, resolution);
+    recordCardShot(resolution, enemy, true);
     run.hull = Math.min(run.maxHull, run.hull + 6);
   } else if (cardId === "revenant_sinking_memory") {
     if (run.hull <= run.maxHull / 2) {
@@ -1938,10 +1970,14 @@ function executeCaptainCard(cardId, target) {
     combat.deathDelayReady = true;
   } else if (cardId === "revenant_return_abyss") {
     damageEnemy(enemy, { hull: 18 }, resolution);
+    recordCardShot(resolution, enemy, true, true);
     run.hull = Math.min(run.maxHull, run.hull + 12);
     if (enemy.hull > 0 && enemy.crew > 0) run.morale -= 6;
   } else if (cardId === "revenant_ghost_fleet") {
-    living.forEach((candidate) => damageEnemy(candidate, { hull: 10 }, resolution));
+    living.forEach((candidate) => {
+      damageEnemy(candidate, { hull: 10 }, resolution);
+      recordCardShot(resolution, candidate, true);
+    });
     run.hull = Math.min(run.maxHull, run.hull + living.length * 3);
   }
 
@@ -1983,9 +2019,25 @@ function recordCardUse(card, resolution, energySpent) {
   const hitTargetCount = Object.values(resolution.damageByEnemy)
     .filter((damage) => damage.hull > 0 || damage.sails > 0 || damage.crew > 0)
     .length;
-  Analytics.recordCardUse(card.id, action, energySpent, hitTargetCount);
+  Analytics.recordCardUse(
+    card.id,
+    action,
+    energySpent,
+    hitTargetCount,
+    card.targetType === "allEnemies" ? "area" : "singleTarget",
+  );
   const dealt = Object.values(resolution.damageByEnemy).reduce((sum, damage) => sum + damage.hull, 0);
   Analytics.addDamage(dealt, resolution.playerDamage);
+}
+
+function queueCardAttackEffects(resolution) {
+  resolution.visualShots.forEach((shot, index) => {
+    const showEffect = () => addCannonEffect(
+      "player", shot.broadside, !shot.hit, shot.enemyId, shot.enemyAnchor,
+    );
+    if (index === 0) showEffect();
+    else setTimeout(showEffect, index * 80);
+  });
 }
 
 function finishCardResolution(resolution) {
@@ -2030,6 +2082,7 @@ function playCard(instanceId, target) {
     : executePublicCard(card.id, target);
   CardEngine.finishCard(run.combat.cardState, instanceId, card.exhaust);
   applyResolution(resolution);
+  queueCardAttackEffects(resolution);
   recordCardUse(card, resolution, cost);
   finishCardResolution(resolution);
   return true;
@@ -2345,6 +2398,7 @@ function startEnemyTurn() {
   const playerHullBefore = run.hull;
   let attacksLeft = FleetCombat.attackBudget(run.mapId, living.length);
   const actions = [];
+  let playerDefeated = false;
 
   combat.locked = true;
   for (const enemy of rotateFromCursor(living, combat.attackCursor)) {
@@ -2354,9 +2408,11 @@ function startEnemyTurn() {
     actions.push(action);
     enemy.movementBlocked = false;
     if (action.directAttack) attacksLeft -= 1;
-    if (run.hull <= 0) break;
+    playerDefeated = checkDefeat();
+    if (playerDefeated) break;
   }
   combat.attackCursor = (combat.attackCursor + 1) % Math.max(1, living.length);
+  if (playerDefeated) return actions;
   combat.pendingEnemyTurn = { actions, playerHullBefore };
   return finishEnemyTurn();
 }
@@ -2691,7 +2747,11 @@ function moveTargetFocus(direction) {
 }
 
 function clientPointForDropTarget(target) {
-  const geometry = combatDropTargets().find((candidate) => candidate.type === target.type && candidate.id === target.id);
+  const geometry = combatDropTargets().find((candidate) => (
+    candidate.type === target.type
+    && candidate.id === target.id
+    && (target.range === undefined || candidate.range === target.range)
+  ));
   if (!geometry) return null;
   const bounds = canvas.getBoundingClientRect();
   const x = (geometry.rect.left + geometry.rect.right) / 2;
@@ -2776,11 +2836,19 @@ function returnDraggedCard(reason) {
 function eligibleDropTargets(instanceId) {
   const targets = validTargets(instanceId);
   const geometry = combatDropTargets().filter((candidate) => (
-    targets.some((target) => target.type === candidate.type && target.id === candidate.id)
+    targets.some((target) => (
+      target.type === candidate.type
+      && target.id === candidate.id
+      && (target.range === undefined || candidate.range === target.range)
+    ))
   ));
   return geometry.map((candidate) => ({
     ...candidate,
-    target: targets.find((target) => target.type === candidate.type && target.id === candidate.id),
+    target: targets.find((target) => (
+      target.type === candidate.type
+      && target.id === candidate.id
+      && (target.range === undefined || candidate.range === target.range)
+    )),
   }));
 }
 
@@ -2933,6 +3001,7 @@ function renderCombatHand() {
   hand.setAttribute("aria-label", "전투 손패");
   state.hand.forEach((instance, index) => {
     const card = CardDefinitions.getCard(instance.cardId);
+    if (!card) return;
     const reason = cardDisabledReason(instance);
     const selected = instance.instanceId === keyboardCardSelection.instanceId;
     const button = makeElement("button", `combat-card rarity-${card.rarity}${selected ? " is-selected" : ""}`);
@@ -3512,13 +3581,16 @@ function checkDefeat() {
       playTone(220, 0.2, "sine", 0.05);
       Analytics.recordSafetyNet();
       updateHud();
-      return false;
     }
-    run.deathCause = "hull";
-    finishRun("선체가 부서져 배와 보물이 바다 아래로 가라앉았습니다.", false);
-    return true;
+    if (run.hull <= 0) {
+      run.hull = 0;
+      run.deathCause = "hull";
+      finishRun("선체가 부서져 배와 보물이 바다 아래로 가라앉았습니다.", false);
+      return true;
+    }
   }
   if (run.morale <= 0) {
+    run.morale = 0;
     run.deathCause = "morale";
     finishRun("사기가 바닥나 선상 반란이 일어났습니다. 선장의 깃발이 끌어내려졌습니다.", false);
     return true;
@@ -3990,7 +4062,8 @@ function combatDropTargets() {
   const targets = [
     ...enemyTargets,
     { type: "self", id: "self", rect: { left: 72, top: 286, right: 372, bottom: 590 } },
-    { type: "sea", id: "sea", rect: { left: 390, top: 150, right: 680, bottom: 590 } },
+    { type: "sea", id: "sea", range: 1, rect: { left: 390, top: 150, right: 680, bottom: 360 } },
+    { type: "sea", id: "sea", range: 3, rect: { left: 390, top: 380, right: 680, bottom: 590 } },
   ];
   if (enemyTargets.length > 0) {
     targets.push({

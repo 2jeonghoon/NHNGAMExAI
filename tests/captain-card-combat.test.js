@@ -132,6 +132,29 @@ test("다른 선장의 전용 카드는 실행할 수 없고 어떤 상태도 �
   assert.equal(read(context, "JSON.stringify(run)"), before);
 });
 
+test("선장 공격 카드도 명중과 빗나감 함포 효과를 큐에 넣는다", () => {
+  const hit = combatForCaptain("gunner", ["gunner_magazine_open"]);
+  const hitEffect = JSON.parse(read(hit, `JSON.stringify((() => {
+    let effect = null;
+    addCannonEffect = (_source, broadside, missed, enemyId) => { effect = { broadside, missed, enemyId }; };
+    const instance = run.combat.cardState.hand[0];
+    playCard(instance.instanceId, "enemy-0");
+    return effect;
+  })())`));
+  assert.deepEqual(hitEffect, { broadside: true, missed: false, enemyId: "enemy-0" });
+
+  const miss = combatForCaptain("gunner", ["gunner_shrapnel"]);
+  const missEffect = JSON.parse(read(miss, `JSON.stringify((() => {
+    let effect = null;
+    Math.random = () => 0.99;
+    addCannonEffect = (_source, broadside, missed, enemyId) => { effect = { broadside, missed, enemyId }; };
+    const instance = run.combat.cardState.hand[0];
+    playCard(instance.instanceId, "enemy-0");
+    return effect;
+  })())`));
+  assert.deepEqual(missEffect, { broadside: false, missed: true, enemyId: "enemy-0" });
+});
+
 const captainCards = [
   { captain: "gunner", id: "gunner_steady_aim", cost: 0, targetType: "self", target: "self", exhaust: false,
     want: { drawn: 1, nextShotAccuracyBonus: 0.15 } },
