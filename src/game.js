@@ -27,6 +27,7 @@ const ui = {
   actionDock: document.querySelector("#actionDock"),
   modalLayer: document.querySelector("#modalLayer"),
   modalPanel: document.querySelector("#modalPanel"),
+  deckButton: document.querySelector("#deckButton"),
   soundButton: document.querySelector("#soundButton"),
   statsButton: document.querySelector("#statsButton"),
   newVoyageButton: document.querySelector("#newVoyageButton"),
@@ -761,6 +762,8 @@ function updateHud() {
     [ui.food, ui.water, ui.gold, ui.cannons].forEach((element) => { element.textContent = "0"; });
     ui.crewPower.textContent = "전투력 0";
     ui.artifactCount.textContent = "0 / 6";
+    ui.deckButton.textContent = "덱 0장";
+    ui.deckButton.disabled = true;
     clearElement(ui.crewList);
     clearElement(ui.artifactList);
     clearElement(ui.eventLog);
@@ -786,6 +789,8 @@ function updateHud() {
   ui.cannons.textContent = getCannonPower();
   ui.crewPower.textContent = `전투력 ${getCrewPower()}`;
   ui.artifactCount.textContent = `${run.artifacts.length} / 6`;
+  ui.deckButton.textContent = `덱 ${run.deck.length}장`;
+  ui.deckButton.disabled = false;
 
   clearElement(ui.crewList);
   run.crew.forEach((member) => {
@@ -860,6 +865,125 @@ function closeInventoryModal() {
   closeModal();
   updateHud();
   renderActionDock();
+}
+
+function deckCardCounts() {
+  const counts = new Map();
+  run.deck.forEach((cardId) => counts.set(cardId, (counts.get(cardId) || 0) + 1));
+  return [...counts.entries()]
+    .map(([cardId, count]) => ({ card: CardDefinitions.getCard(cardId), cardId, count }))
+    .filter((entry) => entry.card);
+}
+
+function appendDeckList(allowRemoval) {
+  const grid = makeElement("div", "choice-grid");
+  deckCardCounts().forEach(({ card, cardId, count }) => {
+    const row = makeElement("div", `modal-choice rarity-${card.rarity}`);
+    const head = makeElement("div", "choice-head");
+    head.append(
+      makeElement("h3", "", card.name),
+      makeElement("span", "choice-cost rarity-badge", `${RARITIES[card.rarity]?.name || "노말"} · ${count}장`),
+    );
+    row.append(head, makeElement("p", "", `${card.family} · 에너지 ${card.cost} · ${card.description}`));
+    if (allowRemoval) {
+      row.append(makeButton("1장 제거", "item-remove-button", () => removeCard(cardId), !canRemoveCard()));
+    }
+    grid.append(row);
+  });
+  ui.modalPanel.append(grid);
+}
+
+function showDeck() {
+  if (!run) return;
+  const previousModal = {
+    hidden: ui.modalLayer.hidden,
+    className: ui.modalPanel.className,
+    children: Array.from(ui.modalPanel.childNodes || []),
+  };
+  const restore = () => {
+    if (previousModal.hidden) return closeInventoryModal();
+    clearElement(ui.modalPanel);
+    ui.modalPanel.className = previousModal.className;
+    ui.modalPanel.append(...previousModal.children);
+    ui.modalLayer.hidden = false;
+    updateHud();
+  };
+
+  setModalBase("DECK", `덱 ${run.deck.length}장`, "현재 항해에서 사용하는 카드입니다. 항구의 카드 정리 서비스에서만 제거할 수 있습니다.", false);
+  appendDeckList(false);
+  addModalActions([{ label: "돌아가기", primary: true, onClick: restore }]);
+}
+
+function cardRemovalPrice() {
+  return 12 + run.cardRemovals * 8;
+}
+
+function cardRemovalAvailable() {
+  return Boolean(run && (run.mode === "port" || run.cardRemovalEnabled === true));
+}
+
+function canRemoveCard() {
+  return Boolean(cardRemovalAvailable() && run.deck.length > 5 && run.gold >= cardRemovalPrice());
+}
+
+function recordCardProgression(kind, cardId) {
+  const dedicatedRecorder = kind === "acquired" ? Analytics.recordCardAcquired : Analytics.recordCardRemoved;
+  if (typeof dedicatedRecorder === "function") dedicatedRecorder(cardId);
+  else Analytics.recordEvent(`card_${kind}:${cardId}`);
+}
+
+function showCardRemoval() {
+  if (!cardRemovalAvailable()) return showDeck();
+  const price = cardRemovalPrice();
+  setModalBase(
+    "CARD SERVICE",
+    "카드 정리",
+    `카드 한 장을 제거하는 비용은 금화 ${price}입니다. 제거할 때마다 비용이 8씩 오르며 덱은 최소 5장을 유지해야 합니다.`,
+    false,
+  );
+  appendDeckList(true);
+  addModalActions([{ label: run.mode === "port" ? "항구로" : "돌아가기", primary: true, onClick: run.mode === "port" ? showPort : returnToMap }]);
+  updateHud();
+}
+
+function removeCard(instanceOrIndex) {
+  if (!cardRemovalAvailable() || !canRemoveCard()) return;
+  const requestedCardId = typeof instanceOrIndex === "string"
+    ? instanceOrIndex
+    : typeof instanceOrIndex === "object" && instanceOrIndex
+      ? instanceOrIndex.cardId || instanceOrIndex.id
+      : null;
+  const index = Number.isInteger(instanceOrIndex)
+    ? instanceOrIndex
+    : run.deck.findIndex((cardId) => cardId === requestedCardId);
+  const cardId = run.deck[index];
+  const card = CardDefinitions.getCard(cardId);
+  if (!card) return;
+  const price = cardRemovalPrice();
+  let resolved = false;
+
+  setModalBase("REMOVE CARD", "카드를 제거합니까?", `${withJosa(card.name, "을", "를")} 금화 ${price}에 제거합니다. 되돌릴 수 없으며 별도 보상은 없습니다.`);
+  addModalActions([
+    { label: "취소", onClick: showCardRemoval },
+    {
+      label: "제거",
+      primary: true,
+      onClick: () => {
+        if (resolved || !canRemoveCard() || run.deck[index] !== cardId || cardRemovalPrice() !== price) return;
+        resolved = true;
+        run.deck.splice(index, 1);
+        run.gold -= price;
+        run.cardRemovals += 1;
+        run.cardsRemoved ||= [];
+        run.cardsRemoved.push(cardId);
+        recordCardProgression("removed", cardId);
+        logEvent(`${withJosa(card.name, "을", "를")} 덱에서 제거했다. 금화 -${price}.`);
+        playTone(130, 0.08, "sine");
+        updateHud();
+        showCardRemoval();
+      },
+    },
+  ]);
 }
 
 function confirmDismissCrew(memberId) {
@@ -1087,6 +1211,8 @@ function startVoyage(captainId, mapId) {
     repairKits: 2,
     deck: [...CardDefinitions.STARTER_DECK],
     cardRemovals: 0,
+    cardsAcquired: [],
+    cardsRemoved: [],
     infamy: 0,
     crew: [makeCrew(chosen.crew)],
     artifacts: [],
@@ -2360,17 +2486,91 @@ function winCombat() {
 
   addModalActions([
     {
-      label: enemy.kind === "battle" ? "항로 복귀" : "전리품 확인",
+      label: "카드 보상",
       primary: true,
       onClick: () => {
-        if (enemy.kind === "battle") returnToMap();
-        else showArtifactChoice(enemy.kind === "boss" ? "지배자의 유산" : "정예함의 유물", () => {
-          if (enemy.kind === "boss") completeAct();
-          else returnToMap();
+        showCardReward(() => {
+          if (enemy.kind === "battle") returnToMap();
+          else showArtifactChoice(enemy.kind === "boss" ? "지배자의 유산" : "정예함의 유물", () => {
+            if (enemy.kind === "boss") completeAct();
+            else returnToMap();
+          });
         });
       },
     },
   ]);
+}
+
+function drawCardChoices(captainId, count = 3, randomFn = Math.random) {
+  const pool = [...CardDefinitions.getRewardPool(captainId)];
+  const choices = [];
+  while (pool.length > 0 && choices.length < count) {
+    const availableRarities = Object.keys(CardDefinitions.CARD_RARITY_WEIGHTS)
+      .filter((rarity) => pool.some((card) => card.rarity === rarity));
+    const totalWeight = availableRarities.reduce(
+      (sum, rarity) => sum + CardDefinitions.CARD_RARITY_WEIGHTS[rarity],
+      0,
+    );
+    let rarityRoll = randomFn() * totalWeight;
+    let selectedRarity = availableRarities[availableRarities.length - 1];
+    for (const rarity of availableRarities) {
+      rarityRoll -= CardDefinitions.CARD_RARITY_WEIGHTS[rarity];
+      if (rarityRoll < 0) {
+        selectedRarity = rarity;
+        break;
+      }
+    }
+    const rarityCandidates = pool.filter((card) => card.rarity === selectedRarity);
+    const cardIndex = Math.min(rarityCandidates.length - 1, Math.floor(randomFn() * rarityCandidates.length));
+    const selected = rarityCandidates[Math.max(0, cardIndex)];
+    choices.push(selected);
+    pool.splice(pool.findIndex((card) => card.id === selected.id), 1);
+  }
+  return choices;
+}
+
+function acquireCard(cardId) {
+  if (!run) return false;
+  const card = CardDefinitions.getCard(cardId);
+  if (!card || (card.captainId && card.captainId !== run.captainId)) return false;
+  run.deck.push(cardId);
+  run.cardsAcquired ||= [];
+  run.cardsAcquired.push(cardId);
+  recordCardProgression("acquired", cardId);
+  logEvent(`[${RARITIES[card.rarity]?.name || "노말"}] ${card.name} 획득.`);
+  playTone(760, 0.15, "triangle", 0.045);
+  updateHud();
+  return true;
+}
+
+function showCardReward(afterChoice) {
+  run.mode = "reward";
+  const choices = drawCardChoices(run.captainId, 3, Math.random);
+  if (choices.length === 0) return afterChoice();
+  let resolved = false;
+  const finish = (cardId) => {
+    if (resolved) return;
+    resolved = true;
+    if (cardId) acquireCard(cardId);
+    afterChoice();
+  };
+
+  setModalBase("CHOOSE A CARD", "카드 보상", "카드 한 장을 덱에 추가하거나 보상을 건너뜁니다.", false);
+  const grid = makeElement("div", "choice-grid");
+  choices.forEach((card) => {
+    const button = makeElement("button", `modal-choice rarity-${card.rarity}`);
+    button.type = "button";
+    const head = makeElement("div", "choice-head");
+    head.append(
+      makeElement("h3", "", card.name),
+      makeElement("span", "choice-cost rarity-badge", `${RARITIES[card.rarity]?.name || "노말"} · 에너지 ${card.cost}`),
+    );
+    button.append(head, makeElement("p", "", `${card.family} · ${card.description}`));
+    button.addEventListener("click", () => finish(card.id));
+    grid.append(button);
+  });
+  ui.modalPanel.append(grid);
+  addModalActions([{ label: "건너뛰기", onClick: () => finish(null) }]);
 }
 
 function showArtifactChoice(title, afterChoice) {
@@ -2723,6 +2923,13 @@ function showPort() {
         logEvent("응급 수리도구를 구입했다.");
         showPort();
       },
+    },
+    {
+      title: "카드 정리",
+      cost: `금화 ${cardRemovalPrice()}`,
+      copy: run.deck.length <= 5 ? "덱은 최소 5장을 유지해야 합니다." : "덱에서 카드 한 장을 제거합니다.",
+      disabled: !canRemoveCard(),
+      action: showCardRemoval,
     },
   ];
   options.forEach((option) => grid.append(makeChoiceButton(option)));
@@ -3515,6 +3722,7 @@ ui.soundButton.addEventListener("click", () => {
 
 ui.newVoyageButton.addEventListener("click", confirmAbandonVoyage);
 ui.statsButton.addEventListener("click", showStats);
+ui.deckButton.addEventListener("click", showDeck);
 
 showHarbor();
 requestAnimationFrame(renderFrame);
