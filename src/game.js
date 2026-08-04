@@ -748,7 +748,7 @@ function updateHud() {
   clearElement(ui.crewList);
   run.crew.forEach((member) => {
     const rarity = RARITIES[member.rarityId] || RARITIES.normal;
-    const row = makeElement("div", `crew-member rarity-${member.rarityId || "normal"}`);
+    const row = makeElement("div", `crew-member game-tooltip rarity-${member.rarityId || "normal"}`);
     row.append(makeElement("div", `crew-avatar crew-avatar--${member.roleId}`, member.mark));
     const copy = makeElement("div", "crew-copy");
     copy.append(makeElement("strong", "", member.name));
@@ -767,7 +767,10 @@ function updateHud() {
         : "항로 화면에서만 선원을 내보낼 수 있습니다.";
     actions.append(dismiss);
     row.append(copy, actions);
-    row.title = `${rarity.name} · 전투력 +${rarity.powerBonus} · ${getCrewRoleEffect(member)} / ${member.trait.effect}`;
+    const crewTooltip = `${rarity.name} 선원 · 개인 전투력 ${member.power} · 역할 효과: ${getCrewRoleEffect(member)} · 특성 효과: ${member.trait.effect}`;
+    row.dataset.tooltip = crewTooltip;
+    row.tabIndex = 0;
+    row.setAttribute("aria-label", `${member.name}. ${crewTooltip}`);
     ui.crewList.append(row);
   });
 
@@ -2340,7 +2343,8 @@ function drawMap(time) {
   const palette = ACTS[run?.actIndex || 0];
   drawOcean(palette, time, false);
   if (!run?.map) {
-    drawShip(250, 480, 1.3, false, "#8b3d34");
+    const previewCaptain = CAPTAINS.find((item) => item.id === selectedCaptainId) || CAPTAINS[0];
+    drawShip(250, 480, 1.3, false, previewCaptain.coat, PLAYER_SHIP_IMAGES[previewCaptain.id]);
     drawIslandSilhouette(880, 420, 1.3);
     return;
   }
