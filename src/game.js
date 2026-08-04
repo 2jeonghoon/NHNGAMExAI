@@ -412,6 +412,7 @@ let lastFrame = 0;
 let visualEffects = [];
 let mapClickRipples = [];
 let shakeMagnitude = 0;
+let combatTargetPreview = { currentTarget: null, validTargets: [] };
 
 function loadMeta() {
   const fallback = {
@@ -2027,6 +2028,7 @@ function useCaptainSkill(target) {
   const enemy = findEnemy(targetId);
   const enemyHullBefore = enemy.hull;
   const playerHullBefore = run.hull;
+  const enemyEffectAnchor = combatEffectAnchors({ source: "player", enemyId: enemy.id }).end;
   combat.skillReady = false;
 
   if (captain().id === "gunner") {
@@ -2034,7 +2036,7 @@ function useCaptainSkill(target) {
     dealEnemyHullDamage(enemy, damage);
     enemy.sails -= 4;
     combat.message = `전탄 일제사격! 적 선체에 ${damage} 피해.`;
-    addCannonEffect("player", true);
+    addCannonEffect("player", true, false, enemy.id, enemyEffectAnchor);
     playTone(76, 0.28, "square", 0.065);
   } else if (captain().id === "navigator") {
     FleetCombat.livingEnemies(combat.enemies).forEach((candidate) => setEnemyRange(candidate.id, 3));
@@ -2058,7 +2060,7 @@ function useCaptainSkill(target) {
     enemy.sails -= 5;
     run.hull = Math.min(run.maxHull, run.hull + heal);
     combat.message = `저승의 진혼곡! 적에게 ${damage} 피해를 주고 선체 ${heal}을 되돌렸다.`;
-    addCannonEffect("player");
+    addCannonEffect("player", false, false, enemy.id, enemyEffectAnchor);
     playTone(300, 0.24, "sine", 0.05);
   }
 
@@ -2096,6 +2098,7 @@ function combatAction(action) {
   if (maneuverUseError(action, enemy)) return;
   const enemyHullBefore = enemy.hull;
   const playerHullBefore = run.hull;
+  const enemyEffectAnchor = combatEffectAnchors({ source: "player", enemyId: enemy.id }).end;
   combat.evasion = 0;
   let acted = true;
 
@@ -2105,11 +2108,11 @@ function combatAction(action) {
       enemy.hull -= damage;
       if (Math.random() < 0.25) enemy.crew = Math.max(0, enemy.crew - 1);
       combat.message = `포탄이 적 선체를 갈랐다. 피해 ${damage}.`;
-      addCannonEffect("player");
+      addCannonEffect("player", false, false, enemy.id, enemyEffectAnchor);
       playTone(92, 0.18, "square", 0.055);
     } else {
       combat.message = "일제사격이 파도 너머로 빗나갔다.";
-      addCannonEffect("player", false, true);
+      addCannonEffect("player", false, true, enemy.id, enemyEffectAnchor);
       playTone(130, 0.08, "sine");
     }
   } else if (action === "chain") {
@@ -2117,11 +2120,11 @@ function combatAction(action) {
       const damage = randomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0);
       enemy.sails -= damage;
       combat.message = `사슬탄이 적의 돛을 찢었다. 돛 피해 ${damage}.`;
-      addCannonEffect("player");
+      addCannonEffect("player", false, false, enemy.id, enemyEffectAnchor);
       playTone(110, 0.14, "square", 0.05);
     } else {
       combat.message = "사슬탄이 적 돛대를 스쳤다.";
-      addCannonEffect("player", false, true);
+      addCannonEffect("player", false, true, enemy.id, enemyEffectAnchor);
     }
   } else if (action === "approach") {
     if (enemyRange(enemy.id) <= 1) return;
@@ -2254,11 +2257,11 @@ function performEnemyAttack(enemy) {
       } else {
         message = `${enemy.name}의 포격 명중. 선체 피해 ${damage}.`;
       }
-      addCannonEffect("enemy");
+      addCannonEffect("enemy", false, false, enemy.id);
       playTone(72, 0.2, "square", 0.055);
     } else {
       message = `${enemy.name}의 포탄이 뱃전을 아슬아슬하게 비껴갔다.`;
-      addCannonEffect("enemy", false, true);
+      addCannonEffect("enemy", false, true, enemy.id);
     }
   }
 
@@ -2368,12 +2371,16 @@ function enemyTurn() {
   return startEnemyTurn();
 }
 
-function addCannonEffect(source, broadside = false, missed = false) {
+function addCannonEffect(source, broadside = false, missed = false, enemyId = null, enemyAnchor = null) {
+  const anchors = combatEffectAnchors({ source, enemyId });
+  const resolvedEnemyAnchor = enemyAnchor || (source === "player" ? anchors.end : anchors.start);
   const count = broadside ? 6 : 3;
   for (let index = 0; index < count; index += 1) {
     visualEffects.push({
       type: "ball",
       source,
+      enemyId,
+      enemyAnchor: { ...resolvedEnemyAnchor },
       progress: -index * 0.05,
       speed: 0.035 + Math.random() * 0.012,
       offset: randomInt(-20, 20),
@@ -2382,11 +2389,20 @@ function addCannonEffect(source, broadside = false, missed = false) {
       hit: false,
     });
   }
-  visualEffects.push({ type: "flash", source, progress: 0, speed: 0.11 });
+  visualEffects.push({
+    type: "flash",
+    source,
+    enemyId,
+    enemyAnchor: { ...resolvedEnemyAnchor },
+    progress: 0,
+    speed: 0.11,
+  });
   for (let index = 0; index < (broadside ? 12 : 6); index += 1) {
     visualEffects.push({
       type: "smoke",
       source,
+      enemyId,
+      enemyAnchor: { ...resolvedEnemyAnchor },
       progress: 0,
       speed: 0.018 + Math.random() * 0.014,
       offset: randomInt(-16, 16),
@@ -3403,6 +3419,144 @@ function enemyShipImagePath(enemy) {
   return paths[0];
 }
 
+function renderableEnemies() {
+  if (!run?.combat) return [];
+  return FleetCombat.livingEnemies(run.combat.enemies)
+    .filter((enemy) => enemy.hull > 0 && enemy.crew > 0);
+}
+
+function enemyRenderLayout() {
+  const enemies = renderableEnemies();
+  const slots = FleetCombat.layoutSlots(enemies.length);
+  return enemies.map((enemy, index) => {
+    const slot = slots[index];
+    const scale = enemies.length === 1 && enemy.kind === "boss" ? 1.7 : slot.scale;
+    const horizontalPadding = 14;
+    const verticalPadding = 12;
+    return {
+      enemyId: enemy.id,
+      x: slot.x,
+      y: slot.y,
+      scale,
+      hitBox: {
+        left: slot.x - 112 * scale - horizontalPadding,
+        top: slot.y - 170 * scale - verticalPadding,
+        right: slot.x + 112 * scale + horizontalPadding,
+        bottom: slot.y + 60 * scale + verticalPadding,
+      },
+    };
+  });
+}
+
+function combatDropTargets() {
+  const enemyTargets = enemyRenderLayout().map(({ enemyId, hitBox }) => ({
+    type: "enemy",
+    id: enemyId,
+    rect: { ...hitBox },
+  }));
+  const targets = [
+    ...enemyTargets,
+    { type: "self", id: "self", rect: { left: 72, top: 286, right: 372, bottom: 590 } },
+    { type: "sea", id: "sea", rect: { left: 390, top: 150, right: 680, bottom: 590 } },
+  ];
+  if (enemyTargets.length > 0) {
+    targets.push({
+      type: "allEnemies",
+      id: "allEnemies",
+      rect: {
+        left: Math.min(...enemyTargets.map((target) => target.rect.left)),
+        top: Math.min(...enemyTargets.map((target) => target.rect.top)),
+        right: Math.max(...enemyTargets.map((target) => target.rect.right)),
+        bottom: Math.max(...enemyTargets.map((target) => target.rect.bottom)),
+      },
+    });
+  }
+  return targets;
+}
+
+function canvasPointFromClient(clientX, clientY) {
+  const bounds = canvas.getBoundingClientRect();
+  const cssWidth = bounds.width || canvas.width;
+  const cssHeight = bounds.height || canvas.height;
+  return {
+    x: (clientX - bounds.left) * (canvas.width / cssWidth),
+    y: (clientY - bounds.top) * (canvas.height / cssHeight),
+  };
+}
+
+function combatDropTargetAtClientPoint(clientX, clientY, targets = combatDropTargets()) {
+  const point = canvasPointFromClient(clientX, clientY);
+  return targets.find(({ rect }) => (
+    point.x >= rect.left
+    && point.x <= rect.right
+    && point.y >= rect.top
+    && point.y <= rect.bottom
+  )) || null;
+}
+
+function enemyIntentLabel(intent) {
+  return { attack: "포격", approach: "접근", hold: "대기" }[intent] || "대기";
+}
+
+function enemyIntentIcon(intent) {
+  return { attack: "✦", approach: "➤", hold: "◼" }[intent] || "◼";
+}
+
+function combatEffectAnchors(effect, layout = enemyRenderLayout()) {
+  const playerAnchor = { x: 322, y: 453 };
+  const focusedId = run?.combat?.focusedEnemyId;
+  const targetLayout = layout.find((item) => item.enemyId === effect.enemyId)
+    || layout.find((item) => item.enemyId === focusedId)
+    || layout[0];
+  const enemyAnchor = effect.enemyAnchor
+    ? { ...effect.enemyAnchor }
+    : targetLayout
+      ? { x: targetLayout.x - 67 * targetLayout.scale, y: targetLayout.y }
+      : { ...playerAnchor };
+  return effect.source === "player"
+    ? { start: playerAnchor, end: enemyAnchor }
+    : { start: enemyAnchor, end: playerAnchor };
+}
+
+function drawEnemyCombatHud(layout, enemy, state) {
+  const { hitBox } = layout;
+  const hudWidth = Math.min(220, hitBox.right - hitBox.left);
+  const hudHeight = 52;
+  const hudX = (hitBox.left + hitBox.right - hudWidth) / 2;
+  const hudY = hitBox.top;
+
+  if (state.validDrop || state.focused) {
+    ctx.save();
+    ctx.strokeStyle = state.hovered
+      ? "rgba(111, 232, 183, 0.98)"
+      : state.validDrop
+        ? "rgba(111, 232, 183, 0.68)"
+        : "rgba(224, 174, 75, 0.78)";
+    ctx.lineWidth = state.hovered ? 4 : 2;
+    ctx.setLineDash(state.validDrop && !state.hovered ? [7, 5] : []);
+    ctx.strokeRect(hitBox.left, hitBox.top, hitBox.right - hitBox.left, hitBox.bottom - hitBox.top);
+    ctx.restore();
+  }
+
+  ctx.fillStyle = "rgba(7, 22, 29, 0.88)";
+  ctx.fillRect(hudX, hudY, hudWidth, hudHeight);
+  ctx.fillStyle = "#f3e4c7";
+  ctx.font = "700 12px Georgia, serif";
+  ctx.fillText(enemy.name, hudX + 9, hudY + 16);
+  ctx.fillStyle = "#08181e";
+  ctx.fillRect(hudX + 9, hudY + 23, hudWidth - 18, 6);
+  ctx.fillStyle = "#c7564d";
+  ctx.fillRect(hudX + 9, hudY + 23, (hudWidth - 18) * clamp(enemy.hull / enemy.maxHull, 0, 1), 6);
+  ctx.fillStyle = "#c7d3ce";
+  ctx.font = "10px system-ui, sans-serif";
+  ctx.fillText(`거리 ${state.range}/3`, hudX + 9, hudY + 43);
+  ctx.textAlign = "center";
+  ctx.fillText(`돛 ${Math.max(0, enemy.sails)}/${enemy.maxSails}`, hudX + hudWidth / 2, hudY + 43);
+  ctx.textAlign = "right";
+  ctx.fillText(`${state.intentIcon} ${state.intentLabel}`, hudX + hudWidth - 9, hudY + 43);
+  ctx.textAlign = "left";
+}
+
 function drawShip(x, y, scale, flip, color, imagePath = null) {
   const image = getShipImage(imagePath);
   ctx.save();
@@ -3473,61 +3627,85 @@ function drawCombat(time) {
   }
   const combat = run.combat;
   const enemy = focusedEnemy();
-  if (!enemy) {
+  const enemyLayout = enemyRenderLayout();
+  const hasVisualEffects = visualEffects.some((effect) => effect.progress < 1.2);
+  if (enemyLayout.length === 0 && !hasVisualEffects) {
     ctx.restore();
     shakeMagnitude *= 0.85;
     return;
   }
-  const rangePositions = { 1: 735, 2: 900, 3: 1060 };
-  const enemyX = rangePositions[enemyRange(enemy.id)];
   const bobPlayer = Math.sin(time * 0.003) * 4;
-  const bobEnemy = Math.sin(time * 0.003 + 1.7) * 5;
 
   drawShip(220, 468 + bobPlayer, 1.35, false, captain().coat, PLAYER_SHIP_IMAGES[captain().id]);
-  drawShip(
-    enemyX,
-    452 + bobEnemy,
-    enemy.kind === "boss" ? 1.7 : 1.42,
-    true,
-    enemy.kind === "boss" ? "#5d2528" : "#394e51",
-    enemyShipImagePath(enemy),
-  );
+  const validEnemyIds = new Set((combatTargetPreview?.validTargets || [])
+    .filter((target) => target.type === "enemy")
+    .map((target) => target.id));
+  const allEnemiesValid = (combatTargetPreview?.validTargets || [])
+    .some((target) => target.type === "allEnemies");
+  const allEnemiesHovered = combatTargetPreview?.currentTarget?.type === "allEnemies";
+  enemyLayout.forEach((layout, index) => {
+    const layoutEnemy = findEnemy(layout.enemyId);
+    const bobEnemy = Math.sin(time * 0.003 + 1.7 + index * 0.8) * 5;
+    drawShip(
+      layout.x,
+      layout.y + bobEnemy,
+      layout.scale,
+      true,
+      layoutEnemy.kind === "boss" ? "#5d2528" : "#394e51",
+      enemyShipImagePath(layoutEnemy),
+    );
+    drawEnemyCombatHud(layout, layoutEnemy, {
+      focused: combat.focusedEnemyId === layoutEnemy.id,
+      hovered: allEnemiesHovered || (
+        combatTargetPreview?.currentTarget?.type === "enemy"
+        && combatTargetPreview.currentTarget.id === layoutEnemy.id
+      ),
+      intentIcon: enemyIntentIcon(layoutEnemy.intent),
+      intentLabel: enemyIntentLabel(layoutEnemy.intent),
+      range: enemyRange(layoutEnemy.id),
+      validDrop: allEnemiesValid || validEnemyIds.has(layoutEnemy.id),
+    });
+  });
 
   drawCombatHud(36, 42, captain().ship, run.hull, run.maxHull, run.sails, run.maxSails, "#e0ae4b");
-  drawCombatHud(754, 42, enemy.name, enemy.hull, enemy.maxHull, enemy.sails, enemy.maxSails, "#c7564d");
 
-  ctx.fillStyle = "rgba(7, 22, 29, 0.82)";
-  ctx.fillRect(472, 42, 256, 72);
-  ctx.fillStyle = "#9fb1af";
-  ctx.font = "11px system-ui, sans-serif";
-  ctx.fillText("풍향", 492, 65);
-  ctx.fillText("거리", 492, 94);
-  ctx.fillStyle = "#f2dfba";
-  ctx.font = "700 16px system-ui, sans-serif";
-  ctx.fillText(`${combat.wind.direction} ${"▸".repeat(combat.wind.speed)}`, 548, 67);
-  ctx.fillText(`${enemyRange(enemy.id)} / 3`, 548, 96);
+  if (enemyLayout.length > 0) {
+    ctx.fillStyle = "rgba(7, 22, 29, 0.82)";
+    ctx.fillRect(472, 42, 256, 72);
+    ctx.fillStyle = "#9fb1af";
+    ctx.font = "11px system-ui, sans-serif";
+    ctx.fillText("풍향", 492, 65);
+    ctx.fillText("표적 거리", 492, 94);
+    ctx.fillStyle = "#f2dfba";
+    ctx.font = "700 16px system-ui, sans-serif";
+    ctx.fillText(`${combat.wind.direction} ${"▸".repeat(combat.wind.speed)}`, 548, 67);
+    ctx.fillText(`${enemyRange(enemy.id)} / 3`, 548, 96);
 
-  ctx.strokeStyle = "rgba(238, 220, 186, 0.45)";
-  ctx.setLineDash([5, 8]);
-  ctx.beginPath();
-  ctx.moveTo(335, 550);
-  ctx.lineTo(enemyX - 115, 550);
-  ctx.stroke();
-  ctx.setLineDash([]);
+    ctx.strokeStyle = "rgba(238, 220, 186, 0.36)";
+    ctx.setLineDash([5, 8]);
+    enemyLayout.forEach((layout) => {
+      ctx.beginPath();
+      ctx.moveTo(335, 550);
+      ctx.lineTo(layout.x - 92 * layout.scale, layout.y + 35 * layout.scale);
+      ctx.stroke();
+    });
+    ctx.setLineDash([]);
+  }
 
   visualEffects = visualEffects.filter((effect) => effect.progress < 1.2);
   visualEffects.forEach((effect) => {
     effect.progress += effect.speed;
+    const anchors = combatEffectAnchors(effect, enemyLayout);
 
     if (effect.type === "flash") {
       const p = clamp(effect.progress, 0, 1);
-      const x = effect.source === "player" ? 322 : enemyX - 95;
-      const gradient = ctx.createRadialGradient(x, 453, 2, x, 453, 34);
+      const { x, y } = anchors.start;
+      const gradient = ctx.createRadialGradient(x, y, 2, x, y, 34);
       gradient.addColorStop(0, `rgba(255, 248, 207, ${0.95 * (1 - p)})`);
       gradient.addColorStop(0.4, `rgba(255, 167, 61, ${0.78 * (1 - p)})`);
       gradient.addColorStop(1, "rgba(255, 91, 35, 0)");
       ctx.beginPath();
-      ctx.arc(x, 453, 34, 0, Math.PI * 2);
+      ctx.arc(x, y, 34, 0, Math.PI * 2);
       ctx.fillStyle = gradient;
       ctx.fill();
       return;
@@ -3535,10 +3713,9 @@ function drawCombat(time) {
 
     if (effect.type === "smoke") {
       const p = clamp(effect.progress, 0, 1);
-      const originX = effect.source === "player" ? 322 : enemyX - 95;
       const direction = effect.source === "player" ? 1 : -1;
-      const x = originX + direction * effect.progress * 54 + effect.drift * p;
-      const y = 453 + effect.offset - effect.progress * 42;
+      const x = anchors.start.x + direction * effect.progress * 54 + effect.drift * p;
+      const y = anchors.start.y + effect.offset - effect.progress * 42;
       const radius = 5 + p * 17;
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -3580,14 +3757,21 @@ function drawCombat(time) {
       return;
     }
 
-    const startX = effect.source === "player" ? 322 : enemyX - 95;
-    const endX = effect.source === "player" ? enemyX - 92 : 322;
+    const startX = anchors.start.x;
+    const startY = anchors.start.y;
+    const endX = anchors.end.x;
+    const endY = anchors.end.y;
     const x = startX + (endX - startX) * effect.progress;
     const arc = Math.sin(effect.progress * Math.PI) * -95;
-    const y = 453 + arc + effect.offset + effect.missOffset * Math.max(0, effect.progress);
+    const y = startY
+      + (endY - startY) * effect.progress
+      + arc
+      + effect.offset
+      + effect.missOffset * Math.max(0, effect.progress);
     const previousProgress = Math.max(0, effect.progress - 0.08);
     const previousX = startX + (endX - startX) * previousProgress;
-    const previousY = 453
+    const previousY = startY
+      + (endY - startY) * previousProgress
       + Math.sin(previousProgress * Math.PI) * -95
       + effect.offset
       + effect.missOffset * previousProgress;
@@ -3620,13 +3804,15 @@ function drawCombat(time) {
     }
   });
 
-  ctx.fillStyle = "rgba(6, 20, 25, 0.82)";
-  ctx.fillRect(410, 606, 380, 54);
-  ctx.fillStyle = "#d9c9ab";
-  ctx.font = "12px system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText(`적 선원 ${Math.max(0, enemy.crew)} · 우리 선원 전투력 ${getCrewPower()} · ${combat.turn}턴`, 600, 638);
-  ctx.textAlign = "left";
+  if (enemyLayout.length > 0) {
+    ctx.fillStyle = "rgba(6, 20, 25, 0.82)";
+    ctx.fillRect(410, 606, 380, 54);
+    ctx.fillStyle = "#d9c9ab";
+    ctx.font = "12px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(`적 선원 ${Math.max(0, enemy.crew)} · 우리 선원 전투력 ${getCrewPower()} · ${combat.turn}턴`, 600, 638);
+    ctx.textAlign = "left";
+  }
   ctx.restore();
   shakeMagnitude *= 0.85;
 }
