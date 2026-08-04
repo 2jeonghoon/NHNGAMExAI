@@ -763,6 +763,11 @@ function playTone(frequency, duration = 0.08, type = "square", volume = 0.035) {
   }
 }
 
+function updateHudMetric(element, label, value) {
+  element.textContent = String(value);
+  element.closest?.(".game-tooltip")?.setAttribute("aria-label", `${label} ${value}`);
+}
+
 function updateHud() {
   ui.legacy.textContent = meta.legacyInfamy;
 
@@ -771,10 +776,15 @@ function updateHud() {
     ui.infamy.textContent = "0";
     ui.shipName.textContent = "무명의 돛단배";
     ui.captainBadge.textContent = "선장 미정";
-    [ui.hull, ui.sails, ui.morale].forEach((element) => { element.textContent = "0 / 0"; });
+    updateHudMetric(ui.hull, "선체", "0 / 0");
+    updateHudMetric(ui.sails, "돛", "0 / 0");
+    updateHudMetric(ui.morale, "사기", "0 / 100");
     [ui.hullMeter, ui.sailsMeter, ui.moraleMeter].forEach((element) => { element.style.width = "0%"; });
-    [ui.food, ui.water, ui.gold, ui.cannons].forEach((element) => { element.textContent = "0"; });
-    ui.crewPower.textContent = "전투력 0";
+    updateHudMetric(ui.food, "식량", 0);
+    updateHudMetric(ui.water, "식수", 0);
+    updateHudMetric(ui.gold, "금화", 0);
+    updateHudMetric(ui.cannons, "화력", 0);
+    updateHudMetric(ui.crewPower, "선원 목록 ·", "전투력 0");
     ui.artifactCount.textContent = "0 / 6";
     ui.deckButton.textContent = "덱 0장";
     ui.deckButton.disabled = true;
@@ -791,17 +801,17 @@ function updateHud() {
   ui.infamy.textContent = run.infamy;
   ui.shipName.textContent = currentCaptain.ship;
   ui.captainBadge.textContent = currentCaptain.name;
-  ui.hull.textContent = `${Math.max(0, run.hull)} / ${run.maxHull}`;
-  ui.sails.textContent = `${Math.max(0, run.sails)} / ${run.maxSails}`;
-  ui.morale.textContent = `${Math.max(0, run.morale)} / 100`;
+  updateHudMetric(ui.hull, "선체", `${Math.max(0, run.hull)} / ${run.maxHull}`);
+  updateHudMetric(ui.sails, "돛", `${Math.max(0, run.sails)} / ${run.maxSails}`);
+  updateHudMetric(ui.morale, "사기", `${Math.max(0, run.morale)} / 100`);
   ui.hullMeter.style.width = `${clamp((run.hull / run.maxHull) * 100, 0, 100)}%`;
   ui.sailsMeter.style.width = `${clamp((run.sails / run.maxSails) * 100, 0, 100)}%`;
   ui.moraleMeter.style.width = `${clamp(run.morale, 0, 100)}%`;
-  ui.food.textContent = run.food;
-  ui.water.textContent = run.water;
-  ui.gold.textContent = run.gold;
-  ui.cannons.textContent = getCannonPower();
-  ui.crewPower.textContent = `전투력 ${getCrewPower()}`;
+  updateHudMetric(ui.food, "식량", run.food);
+  updateHudMetric(ui.water, "식수", run.water);
+  updateHudMetric(ui.gold, "금화", run.gold);
+  updateHudMetric(ui.cannons, "화력", getCannonPower());
+  updateHudMetric(ui.crewPower, "선원 목록 ·", `전투력 ${getCrewPower()}`);
   ui.artifactCount.textContent = `${run.artifacts.length} / 6`;
   ui.deckButton.textContent = `덱 ${run.deck.length}장`;
   ui.deckButton.disabled = false;
@@ -828,10 +838,12 @@ function updateHud() {
         : "항로 화면에서만 선원을 내보낼 수 있습니다.";
     actions.append(dismiss);
     row.append(copy, actions);
-    const crewTooltip = `${rarity.name} 선원 · 개인 전투력 ${member.power} · 역할 효과: ${getCrewRoleEffect(member)} · 특성 효과: ${member.trait.effect}`;
+    const crewDescription = `역할 효과: ${getCrewRoleEffect(member)} · 특성 효과: ${member.trait.effect}`;
+    const crewTooltip = `${rarity.name} 선원 · 개인 전투력 ${member.power} · ${crewDescription}`;
     row.dataset.tooltip = crewTooltip;
     row.tabIndex = 0;
-    row.setAttribute("aria-label", `${member.name}. ${crewTooltip}`);
+    row.setAttribute("aria-label", `${member.name} · ${member.role} · ${rarity.name} · 개인 전투력 ${member.power}`);
+    row.setAttribute("aria-description", crewDescription);
     ui.crewList.append(row);
   });
 
@@ -2566,6 +2578,7 @@ function setCombatTargetPreview(currentTarget, targets) {
 
 function resetCardDrag(button = cardDragButton) {
   if (button) {
+    button.removeAttribute?.("aria-grabbed");
     button.classList.remove("is-dragging", "is-flying", "is-returning");
     button.style.removeProperty?.("--drag-x");
     button.style.removeProperty?.("--drag-y");
@@ -2727,6 +2740,7 @@ function beginCardFlight(instanceId, target, button) {
     executionToken: token,
     phase: "flying",
   };
+  button.removeAttribute?.("aria-grabbed");
   button.classList.remove("is-dragging", "is-returning");
   button.classList.add("is-flying");
   if (destination) {
@@ -2743,6 +2757,7 @@ function returnDraggedCard(reason) {
   const button = cardDragButton;
   const token = ++combatUiExecutionToken;
   cardDragState = { ...cardDragState, currentTarget: null, executionToken: token, phase: "returning" };
+  button?.removeAttribute?.("aria-grabbed");
   button?.classList.remove("is-dragging", "is-flying");
   button?.classList.add("is-returning");
   if (button) button.setAttribute("data-cancel-reason", reason);

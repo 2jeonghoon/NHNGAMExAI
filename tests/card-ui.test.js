@@ -165,6 +165,14 @@ function renderHandWith(cardIds, options = {}) {
       return elements.get(selector);
     },
   };
+  ["#hullLabel", "#sailsLabel", "#moraleLabel", "#foodLabel", "#waterLabel", "#goldLabel", "#cannonLabel", "#crewPowerLabel"]
+    .forEach((selector) => {
+      const tooltip = new TestElement("div", doc);
+      tooltip.className = "game-tooltip";
+      const value = new TestElement("strong", doc);
+      tooltip.append(value);
+      elements.set(selector, value);
+    });
   const canvas = doc.querySelector("#gameCanvas");
   const actionDock = doc.querySelector("#actionDock");
   const modalLayer = doc.querySelector("#modalLayer");
@@ -220,6 +228,7 @@ function renderHandWith(cardIds, options = {}) {
     actionDock,
     canvas,
     context,
+    element(selector) { return doc.querySelector(selector); },
     get dragPhase() { return read(context, "cardDragState.phase"); },
     get energy() { return read(context, "run.combat.cardState.energy"); },
     get handCardIds() { return JSON.parse(read(context, "JSON.stringify(run.combat.cardState.hand.map((item) => item.cardId))")); },
@@ -376,6 +385,60 @@ test("pointercancel은 드래그를 복귀시키고 stale animation 콜백을 �
   ui.finishAnimationTwice();
   assert.equal(ui.playCalls.length, 0);
   assert.equal(ui.energy, 3);
+});
+
+test("포인터 종료와 Escape 취소는 aria-grabbed 상태를 즉시 제거한다", () => {
+  const valid = renderHandWith(["fire"]);
+  valid.pointerDown(0);
+  assert.equal(valid.actionDock.querySelector(".combat-card").getAttribute("aria-grabbed"), "true");
+  valid.pointerUp(enemyCenter(valid, "enemy-0"));
+  assert.equal(valid.actionDock.querySelector(".combat-card").getAttribute("aria-grabbed"), null);
+
+  const invalid = renderHandWith(["repair"]);
+  invalid.pointerDown(0);
+  invalid.pointerUp(enemyCenter(invalid, "enemy-0"));
+  assert.equal(invalid.actionDock.querySelector(".combat-card").getAttribute("aria-grabbed"), null);
+
+  const cancelled = renderHandWith(["fire"]);
+  cancelled.pointerDown(0);
+  cancelled.pointerCancel();
+  assert.equal(cancelled.actionDock.querySelector(".combat-card").getAttribute("aria-grabbed"), null);
+
+  const escaped = renderHandWith(["fire"]);
+  escaped.pointerDown(0);
+  escaped.key("Escape");
+  assert.equal(escaped.actionDock.querySelector(".combat-card").getAttribute("aria-grabbed"), null);
+});
+
+test("HUD 접근성 이름은 현재 자원 값을 포함하고 선원 설명을 분리한다", () => {
+  const ui = renderHandWith(["fire"]);
+  read(ui.context, `
+    run.hull = 37;
+    run.maxHull = 50;
+    run.sails = 11;
+    run.maxSails = 24;
+    run.morale = 63;
+    run.food = 7;
+    run.water = 9;
+    run.gold = 18;
+    run.crew = [{
+      id: "crew-a", name: "민서", mark: "M", power: 4, role: "포수", roleId: "gunner",
+      rarityId: "rare", trait: { id: "stoic", name: "무감한", effect: "식량·식수 고갈로 인한 사기 피해 없음" },
+    }];
+    updateHud();
+  `);
+
+  const tooltipFor = (selector) => ui.element(selector).closest(".game-tooltip");
+  assert.equal(tooltipFor("#hullLabel").getAttribute("aria-label"), "선체 37 / 50");
+  assert.equal(tooltipFor("#moraleLabel").getAttribute("aria-label"), "사기 63 / 100");
+  assert.equal(tooltipFor("#foodLabel").getAttribute("aria-label"), "식량 7");
+  assert.equal(tooltipFor("#waterLabel").getAttribute("aria-label"), "식수 9");
+  assert.equal(tooltipFor("#cannonLabel").getAttribute("aria-label"), "화력 8");
+
+  const crew = ui.element("#crewList").querySelector(".crew-member");
+  assert.equal(crew.getAttribute("aria-label"), "민서 · 포수 · 레어 · 개인 전투력 4");
+  assert.match(crew.getAttribute("aria-description"), /역할 효과: 포격·사슬탄 피해 \+2/);
+  assert.match(crew.getAttribute("aria-description"), /특성 효과: 식량·식수 고갈로 인한 사기 피해 없음/);
 });
 
 test("전투 잠금은 진행 중인 드래그를 취소하고 카드와 턴 행동을 비활성화한다", () => {
