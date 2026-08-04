@@ -26,6 +26,68 @@ function canRemoveFromDeck(deck, gold = 999) {
   `);
 }
 
+function makeTreeElement(tagName = "div") {
+  const listeners = new Map();
+  const element = {
+    tagName,
+    children: [],
+    className: "",
+    classList: { add() {}, remove() {}, toggle() {} },
+    disabled: false,
+    hidden: true,
+    style: { setProperty() {} },
+    textContent: "",
+    addEventListener(type, listener) { listeners.set(type, listener); },
+    append(...nodes) {
+      nodes.forEach((node) => {
+        node.parentNode = this;
+        this.children.push(node);
+      });
+    },
+    appendChild(node) { this.append(node); return node; },
+    click() { listeners.get("click")?.(); },
+    closest() { return null; },
+    getBoundingClientRect() { return { bottom: 0, height: 0, left: 0, right: 0, top: 0, width: 0 }; },
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    remove() { this.parentNode?.removeChild(this); },
+    removeChild(node) {
+      const index = this.children.indexOf(node);
+      if (index >= 0) this.children.splice(index, 1);
+      node.parentNode = null;
+      return node;
+    },
+    replaceChildren(...nodes) {
+      this.children.forEach((node) => { node.parentNode = null; });
+      this.children = [];
+      this.append(...nodes);
+    },
+    setAttribute() {},
+  };
+  Object.defineProperties(element, {
+    childNodes: { get() { return this.children; } },
+    firstChild: { get() { return this.children[0] || null; } },
+  });
+  return element;
+}
+
+function treeDocument() {
+  const elements = new Map();
+  const canvas = makeTreeElement("canvas");
+  canvas.width = 1200;
+  canvas.height = 700;
+  canvas.getContext = () => new Proxy({}, { get: (target, key) => target[key] ||= () => {} });
+  return {
+    addEventListener() {},
+    createElement(tagName) { return makeTreeElement(tagName); },
+    querySelector(selector) {
+      if (selector === "#gameCanvas") return canvas;
+      if (!elements.has(selector)) elements.set(selector, makeTreeElement());
+      return elements.get(selector);
+    },
+  };
+}
+
 function rewardContinuation(kind) {
   return runGame(`
     run = makeTestRun({
@@ -217,6 +279,76 @@ test("제거 서비스 밖에서는 덱을 열람만 할 수 있다", () => {
     deck: ["fire", "fire", "chain", "approach", "retreat", "board"],
     gold: 50,
     cardRemovals: 0,
+  });
+});
+
+test("이벤트 제거 권한은 이벤트를 떠나면 즉시 만료된다", () => {
+  const result = runGame(`
+    run = makeTestRun({
+      mode: "event", cardRemovalEnabled: true,
+      deck: ["fire", "fire", "chain", "approach", "retreat", "board"], gold: 50, cardRemovals: 0,
+    });
+    const duringEvent = cardRemovalAvailable();
+    closeModal = () => {};
+    updateHud = () => {};
+    renderActionDock = () => {};
+    returnToMap();
+    ({ duringEvent, afterExit: cardRemovalAvailable(), mode: run.mode });
+  `);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    duringEvent: true,
+    afterExit: false,
+    mode: "map",
+  });
+});
+
+test("전투 보상 위에서 연 덱 열람은 원래 모달과 핸들러를 상태 변경 없이 복원한다", () => {
+  const document = treeDocument();
+  const context = loadGameScripts([
+    "src/analytics.js",
+    "src/card-definitions.js",
+    "src/game.js",
+  ], { document });
+  const result = read(context, `
+    run = makeTestRun({
+      mode: "reward", captainId: "gunner", deck: ["fire", "chain", "approach", "retreat", "board"],
+      crew: [], artifacts: [], logs: [], infamy: 0, cannons: 6,
+      combat: { id: "combat-state", enemies: [{ id: "enemy-1" }] },
+    });
+    const combatBefore = run.combat;
+    const originalButton = makeElement("button", "reward-choice", "원래 보상");
+    let originalClicks = 0;
+    originalButton.addEventListener("click", () => { originalClicks += 1; });
+    ui.modalPanel.className = "modal-panel reward-panel";
+    ui.modalPanel.append(originalButton);
+    ui.modalLayer.hidden = false;
+    let backAction;
+    addModalActions = (actions) => { backAction = actions[0].onClick; };
+
+    showDeck();
+    const inspectionChangedModal = ui.modalPanel.childNodes[0] !== originalButton;
+    backAction();
+    ui.modalPanel.childNodes[0].click();
+    ({
+      inspectionChangedModal,
+      restoredChild: ui.modalPanel.childNodes[0] === originalButton,
+      restoredClass: ui.modalPanel.className,
+      originalClicks,
+      modalVisible: !ui.modalLayer.hidden,
+      mode: run.mode,
+      sameCombat: run.combat === combatBefore,
+    });
+  `);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    inspectionChangedModal: true,
+    restoredChild: true,
+    restoredClass: "modal-panel reward-panel",
+    originalClicks: 1,
+    modalVisible: true,
+    mode: "reward",
+    sameCombat: true,
   });
 });
 

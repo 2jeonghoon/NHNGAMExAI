@@ -919,7 +919,7 @@ function cardRemovalPrice() {
 }
 
 function cardRemovalAvailable() {
-  return Boolean(run && (run.mode === "port" || run.cardRemovalEnabled === true));
+  return Boolean(run && (run.mode === "port" || (run.mode === "event" && run.cardRemovalEnabled === true)));
 }
 
 function canRemoveCard() {
