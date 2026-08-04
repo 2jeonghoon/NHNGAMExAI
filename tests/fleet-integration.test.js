@@ -98,3 +98,110 @@ test("심연 함대는 적 턴에 최대 두 척만 직접 공격한다", () => 
   assert.equal(result.directAttackCount, 2);
   assert.equal(result.actions.length, 3);
 });
+
+test("한 척을 나포해도 남은 적이 있으면 승리를 예약하지 않는다", () => {
+  const result = runFleetGame(`
+    run = makeTestRun({
+      mapId: "storm", actIndex: 0, artifacts: [], crew: [], logs: [],
+      repairKits: 2, infamy: 0, cannons: 6,
+    });
+    Math.random = () => 0.1;
+    startCombat("elite");
+    const scheduledCallbacks = [];
+    setTimeout = (callback) => scheduledCallbacks.push(callback);
+    const target = focusedEnemy();
+    target.range = 1;
+    target.sails = 0;
+    combatAction("board");
+    ({
+      capturedCount: run.combat.capturedCount,
+      livingIds: FleetCombat.livingEnemies(run.combat.enemies).map((enemy) => enemy.id),
+      focusedEnemyId: focusedEnemy().id,
+      victoryScheduled: run.combat.victoryScheduled,
+      victoryCallbackCount: scheduledCallbacks.filter((callback) => callback === winCombat).length,
+    });
+  `);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    capturedCount: 1,
+    livingIds: ["enemy-1"],
+    focusedEnemyId: "enemy-1",
+    victoryScheduled: false,
+    victoryCallbackCount: 0,
+  });
+});
+
+test("마지막 적을 나포하면 승리를 정확히 한 번만 예약한다", () => {
+  const result = runFleetGame(`
+    run = makeTestRun({
+      mapId: "storm", actIndex: 0, artifacts: [], crew: [], logs: [],
+      repairKits: 2, infamy: 0, cannons: 6,
+    });
+    Math.random = () => 0.1;
+    startCombat("elite");
+    const scheduledCallbacks = [];
+    setTimeout = (callback) => scheduledCallbacks.push(callback);
+    let target = focusedEnemy();
+    target.range = 1;
+    target.sails = 0;
+    combatAction("board");
+    run.combat.locked = false;
+    target = focusedEnemy();
+    target.range = 1;
+    target.sails = 0;
+    combatAction("board");
+    run.combat.locked = false;
+    combatAction("fire");
+    ({
+      capturedCount: run.combat.capturedCount,
+      fleetDefeated: FleetCombat.isDefeated(run.combat.enemies),
+      victoryScheduled: run.combat.victoryScheduled,
+      victoryCallbackCount: scheduledCallbacks.filter((callback) => callback === winCombat).length,
+    });
+  `);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    capturedCount: 2,
+    fleetDefeated: true,
+    victoryScheduled: true,
+    victoryCallbackCount: 1,
+  });
+});
+
+test("함선별 나포 보너스는 항로와 유물 배율 전에 합산한다", () => {
+  const result = runFleetGame(`
+    run = makeTestRun({
+      mapId: "storm", actIndex: 0, enemyMultiplier: 1, rewardMultiplier: 2,
+      artifacts: [{ id: "kingsRansom" }, { id: "map" }], crew: [], logs: [],
+      repairKits: 2, infamy: 0, cannons: 6, gold: 0,
+    });
+    Math.random = () => 0.1;
+    startCombat("elite");
+    run.combat.capturedCount = 2;
+    run.combat.enemies.forEach((enemy) => { enemy.captured = true; });
+    winCombat();
+    ({ gold: run.gold, infamy: run.infamy });
+  `);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { gold: 160, infamy: 87 });
+});
+
+test("연속 적 턴의 직접 공격자는 함대 순서대로 순환한다", () => {
+  const result = runFleetGame(`
+    run = makeTestRun({
+      mapId: "storm", actIndex: 0, artifacts: [], crew: [], logs: [],
+      repairKits: 2, infamy: 0, cannons: 6, hull: 100, maxHull: 100,
+    });
+    Math.random = () => 0.1;
+    startCombat("elite");
+    run.combat.enemies.forEach((enemy) => { enemy.range = 2; });
+    Math.random = () => 0.9;
+    const firstActions = startEnemyTurn();
+    const secondActions = startEnemyTurn();
+    [firstActions, secondActions].map((actions) => (
+      actions.find((action) => action.directAttack).enemyId
+    ));
+  `);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), ["enemy-0", "enemy-1"]);
+});
