@@ -413,6 +413,19 @@ let visualEffects = [];
 let mapClickRipples = [];
 let shakeMagnitude = 0;
 let combatTargetPreview = { currentTarget: null, validTargets: [] };
+let combatUiExecutionToken = 0;
+let cardDragButton = null;
+let cardDragPointerStart = null;
+let cardDragState = {
+  instanceId: null,
+  pointerId: null,
+  originRect: null,
+  currentTarget: null,
+  executionToken: 0,
+  phase: "idle",
+};
+let keyboardCardSelection = { instanceId: null, targetIndex: 0 };
+let keyboardSkillSelection = { active: false, targetIndex: 0 };
 
 function loadMeta() {
   const fallback = {
@@ -2431,41 +2444,436 @@ function triggerShake(magnitude) {
   shakeMagnitude = Math.max(shakeMagnitude, magnitude);
 }
 
-function renderCombatActions() {
-  clearElement(ui.actionDock);
-  const combat = run.combat;
-  const enemy = focusedEnemy();
-  if (!enemy) return;
-  const title = makeElement("div", "action-title");
-  const logWrap = makeElement("div", "combat-log");
-  (combat.log && combat.log.length ? combat.log : [combat.message]).forEach((line, index) => {
-    logWrap.append(makeElement(index === 0 ? "h2" : "p", index === 0 ? "" : "combat-log-line", line));
+const CARD_RARITY_LABELS = { normal: "일반", rare: "희귀", epic: "영웅" };
+
+function idleCardDragState() {
+  return {
+    instanceId: null,
+    pointerId: null,
+    originRect: null,
+    currentTarget: null,
+    executionToken: combatUiExecutionToken,
+    phase: "idle",
+  };
+}
+
+function prefersReducedCombatMotion() {
+  return Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+}
+
+function setCombatTargetPreview(currentTarget, targets) {
+  combatTargetPreview = { currentTarget: currentTarget || null, validTargets: [...targets] };
+  if (currentTarget) {
+    canvas.setAttribute("data-target-valid", `${currentTarget.type}:${currentTarget.id}`);
+  } else {
+    canvas.removeAttribute?.("data-target-valid");
+  }
+}
+
+function resetCardDrag(button = cardDragButton) {
+  if (button) {
+    button.classList.remove("is-dragging", "is-flying", "is-returning");
+    button.style.removeProperty?.("--drag-x");
+    button.style.removeProperty?.("--drag-y");
+    button.style.removeProperty?.("--flight-x");
+    button.style.removeProperty?.("--flight-y");
+  }
+  cardDragButton = null;
+  cardDragPointerStart = null;
+  cardDragState = idleCardDragState();
+  setCombatTargetPreview(null, []);
+}
+
+function cardDisabledReason(instance) {
+  if (!run?.combat || run.mode !== "combat") return "전투 중에만 사용할 수 있습니다.";
+  if (run.combat.locked || run.combat.victoryScheduled) return "적의 행동이 끝날 때까지 기다려야 합니다.";
+  const card = CardDefinitions.getCard(instance.cardId);
+  const candidates = cardTargetCandidates(card);
+  if (candidates.some((target) => cardUseError(instance.instanceId, target) === null)) return "";
+  return candidates.map((target) => cardUseError(instance.instanceId, target)).find(Boolean)
+    || "사용할 수 있는 대상이 없습니다.";
+}
+
+function currentKeyboardTargets() {
+  if (keyboardSkillSelection.active) {
+    return FleetCombat.livingEnemies(run?.combat?.enemies || [])
+      .map((enemy) => ({ type: "enemy", id: enemy.id }))
+      .filter((target) => captainSkillError(target) === null);
+  }
+  if (!keyboardCardSelection.instanceId) return [];
+  return validTargets(keyboardCardSelection.instanceId);
+}
+
+function currentKeyboardTarget() {
+  const targets = currentKeyboardTargets();
+  if (targets.length === 0) return null;
+  const selectedIndex = keyboardSkillSelection.active
+    ? keyboardSkillSelection.targetIndex
+    : keyboardCardSelection.targetIndex;
+  const index = ((selectedIndex % targets.length) + targets.length) % targets.length;
+  return targets[index];
+}
+
+function currentTargetIndex() {
+  return keyboardSkillSelection.active
+    ? keyboardSkillSelection.targetIndex
+    : keyboardCardSelection.targetIndex;
+}
+
+function setCurrentTargetIndex(index) {
+  if (keyboardSkillSelection.active) keyboardSkillSelection.targetIndex = index;
+  else keyboardCardSelection.targetIndex = index;
+}
+
+function targetLabel(target) {
+  if (target.type === "enemy") return findEnemy(target.id)?.name || target.id;
+  if (target.type === "self") return "아군 함선";
+  if (target.type === "sea" && target.range !== undefined) return `해역 · 거리 ${target.range}`;
+  if (target.type === "sea") return "해역";
+  if (target.type === "allEnemies") return "적 함대 전체";
+  return target.id;
+}
+
+function updateKeyboardTargetUi({ focus = false } = {}) {
+  const targets = currentKeyboardTargets();
+  const current = currentKeyboardTarget();
+  setCombatTargetPreview(current, targets);
+  const buttons = [...ui.actionDock.querySelectorAll(".combat-target-button")];
+  buttons.forEach((button, index) => {
+    const selected = index === currentTargetIndex();
+    button.classList.toggle("is-selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+    if (selected && focus) button.focus();
   });
-  title.append(
-    logWrap,
-    makeElement("p", "", `${combat.wind.direction} ${combat.wind.speed} · 거리 ${enemyRange(enemy.id)} · 수리도구 ${run.repairKits}`),
-  );
+}
 
-  const buttons = makeElement("div", "action-buttons");
-  const commands = [
-    { id: "fire", label: "선체 포격", copy: `명중 ${Math.round(playerHitChance("fire") * 100)}%` },
-    { id: "chain", label: "사슬탄", copy: `돛 공격 · 명중 ${Math.round(playerHitChance("chain") * 100)}%` },
-    { id: "approach", label: "접근 기동", copy: "접안 거리를 만든다", disabled: enemyRange(enemy.id) <= 1 || run.sails <= 0 },
-    { id: "retreat", label: "회피 기동", copy: "거리를 벌리고 회피", disabled: run.sails <= 0 },
-    { id: "repair", label: "응급수리", copy: `도구 ${run.repairKits}개`, disabled: run.repairKits <= 0 || run.hull >= run.maxHull },
-    { id: "board", label: "접안 공격", copy: `승률 ${Math.round(clamp(0.42 + (getCrewPower() - enemy.crew) / 45 + (hasTrait("brave") ? 0.08 : 0), 0.2, 0.9) * 100)}%`, disabled: enemyRange(enemy.id) !== 1 || enemy.sails > enemy.maxSails * 0.55 },
-    { id: "skill", label: captain().skill, copy: "선장 고유 기술", disabled: !combat.skillReady, skill: true },
-  ];
+function selectCardByIndex(index) {
+  if (!run || run.mode !== "combat" || cardDragState.phase !== "idle") return false;
+  const instance = run.combat.cardState?.hand[index];
+  if (!instance || cardDisabledReason(instance)) return false;
+  keyboardSkillSelection = { active: false, targetIndex: 0 };
+  keyboardCardSelection = { instanceId: instance.instanceId, targetIndex: 0 };
+  renderCombatHand();
+  updateKeyboardTargetUi({ focus: true });
+  return true;
+}
 
-  commands.forEach((command) => {
-    const button = makeElement("button", `command-button${command.skill ? " skill" : ""}`);
+function selectCaptainSkill() {
+  if (!run || run.mode !== "combat" || cardDragState.phase !== "idle" || captainSkillError()) return false;
+  keyboardCardSelection = { instanceId: null, targetIndex: 0 };
+  keyboardSkillSelection = { active: true, targetIndex: 0 };
+  renderCombatHand();
+  updateKeyboardTargetUi({ focus: true });
+  return true;
+}
+
+function selectCardByInstance(instanceId) {
+  const index = run?.combat?.cardState?.hand.findIndex((instance) => instance.instanceId === instanceId) ?? -1;
+  return selectCardByIndex(index);
+}
+
+function moveTargetFocus(direction) {
+  const targets = currentKeyboardTargets();
+  if (targets.length === 0) return false;
+  const delta = typeof direction === "number"
+    ? direction
+    : ["left", "up", "previous"].includes(direction) ? -1 : 1;
+  setCurrentTargetIndex((currentTargetIndex() + delta + targets.length) % targets.length);
+  updateKeyboardTargetUi({ focus: true });
+  return true;
+}
+
+function clientPointForDropTarget(target) {
+  const geometry = combatDropTargets().find((candidate) => candidate.type === target.type && candidate.id === target.id);
+  if (!geometry) return null;
+  const bounds = canvas.getBoundingClientRect();
+  const x = (geometry.rect.left + geometry.rect.right) / 2;
+  const y = (geometry.rect.top + geometry.rect.bottom) / 2;
+  return {
+    x: bounds.left + x * ((bounds.width || canvas.width) / canvas.width),
+    y: bounds.top + y * ((bounds.height || canvas.height) / canvas.height),
+  };
+}
+
+function finishCardExecution(token) {
+  if (cardDragState.phase !== "flying" || cardDragState.executionToken !== token) return false;
+  const { instanceId, currentTarget } = cardDragState;
+  keyboardCardSelection = { instanceId: null, targetIndex: 0 };
+  keyboardSkillSelection = { active: false, targetIndex: 0 };
+  resetCardDrag();
+  return playCard(instanceId, currentTarget);
+}
+
+function waitForCardFlight(button, token) {
+  const finish = () => finishCardExecution(token);
+  button.addEventListener("animationend", (event) => {
+    if (!event.animationName || event.animationName === "combat-card-flight") finish();
+  });
+  if (prefersReducedCombatMotion()) {
+    button.classList.add("is-motion-reduced");
+    setTimeout(finish, 0);
+    return;
+  }
+  setTimeout(finish, 300);
+}
+
+function beginCardFlight(instanceId, target, button) {
+  if (!button || !target || cardDragState.phase === "flying" || run?.combat?.locked) return false;
+  const instance = findHandInstance(instanceId);
+  if (!instance || cardUseError(instanceId, target)) return false;
+  const token = ++combatUiExecutionToken;
+  const originRect = cardDragState.originRect || button.getBoundingClientRect();
+  const destination = clientPointForDropTarget(target);
+  cardDragButton = button;
+  cardDragState = {
+    instanceId,
+    pointerId: cardDragState.pointerId,
+    originRect,
+    currentTarget: target,
+    executionToken: token,
+    phase: "flying",
+  };
+  button.classList.remove("is-dragging", "is-returning");
+  button.classList.add("is-flying");
+  if (destination) {
+    button.style.setProperty("--flight-x", `${destination.x - (originRect.left + originRect.width / 2)}px`);
+    button.style.setProperty("--flight-y", `${destination.y - (originRect.top + originRect.height / 2)}px`);
+  }
+  setCombatTargetPreview(target, validTargets(instanceId));
+  waitForCardFlight(button, token);
+  return true;
+}
+
+function returnDraggedCard(reason) {
+  if (!["dragging", "flying"].includes(cardDragState.phase)) return false;
+  const button = cardDragButton;
+  const token = ++combatUiExecutionToken;
+  cardDragState = { ...cardDragState, currentTarget: null, executionToken: token, phase: "returning" };
+  button?.classList.remove("is-dragging", "is-flying");
+  button?.classList.add("is-returning");
+  if (button) button.setAttribute("data-cancel-reason", reason);
+  setCombatTargetPreview(null, []);
+  const finish = () => {
+    if (cardDragState.phase !== "returning" || cardDragState.executionToken !== token) return;
+    resetCardDrag(button);
+  };
+  button?.addEventListener("animationend", (event) => {
+    if (!event.animationName || event.animationName === "combat-card-return") finish();
+  });
+  setTimeout(finish, prefersReducedCombatMotion() ? 0 : 300);
+  return true;
+}
+
+function eligibleDropTargets(instanceId) {
+  const targets = validTargets(instanceId);
+  const geometry = combatDropTargets().filter((candidate) => (
+    targets.some((target) => target.type === candidate.type && target.id === candidate.id)
+  ));
+  return geometry.map((candidate) => ({
+    ...candidate,
+    target: targets.find((target) => target.type === candidate.type && target.id === candidate.id),
+  }));
+}
+
+function beginCardDrag(event, instanceId) {
+  if (event.button !== undefined && event.button !== 0) return false;
+  if (!run || run.mode !== "combat" || run.combat.locked || cardDragState.phase !== "idle") return false;
+  const instance = findHandInstance(instanceId);
+  if (!instance || cardDisabledReason(instance)) return false;
+  const button = event.currentTarget;
+  event.preventDefault?.();
+  button.setPointerCapture?.(event.pointerId);
+  cardDragButton = button;
+  cardDragPointerStart = { x: event.clientX, y: event.clientY };
+  cardDragState = {
+    instanceId,
+    pointerId: event.pointerId,
+    originRect: button.getBoundingClientRect(),
+    currentTarget: null,
+    executionToken: ++combatUiExecutionToken,
+    phase: "dragging",
+  };
+  button.classList.add("is-dragging");
+  button.setAttribute("aria-grabbed", "true");
+  setCombatTargetPreview(null, validTargets(instanceId));
+  return true;
+}
+
+function updateCardDrag(event) {
+  if (cardDragState.phase !== "dragging" || event.pointerId !== cardDragState.pointerId) return false;
+  if (!run?.combat || run.combat.locked || run.combat.victoryScheduled) return returnDraggedCard("combat-lock");
+  event.preventDefault?.();
+  const dx = event.clientX - cardDragPointerStart.x;
+  const dy = event.clientY - cardDragPointerStart.y;
+  cardDragButton?.style.setProperty("--drag-x", `${dx}px`);
+  cardDragButton?.style.setProperty("--drag-y", `${dy}px`);
+  const eligible = eligibleDropTargets(cardDragState.instanceId);
+  const geometry = combatDropTargetAtClientPoint(event.clientX, event.clientY, eligible);
+  const target = geometry?.target || null;
+  cardDragState.currentTarget = target;
+  cardDragButton?.classList.toggle("has-valid-target", Boolean(target));
+  setCombatTargetPreview(target, validTargets(cardDragState.instanceId));
+  return true;
+}
+
+function finishCardDrag(event) {
+  if (cardDragState.phase !== "dragging" || event.pointerId !== cardDragState.pointerId) return false;
+  event.preventDefault?.();
+  if (cardDragButton?.hasPointerCapture?.(event.pointerId)) cardDragButton.releasePointerCapture(event.pointerId);
+  if (!run?.combat || run.combat.locked || run.combat.victoryScheduled) return returnDraggedCard("combat-lock");
+  const target = cardDragState.currentTarget;
+  if (target) return beginCardFlight(cardDragState.instanceId, target, cardDragButton);
+  const origin = cardDragState.originRect;
+  const releasedAtOrigin = origin
+    && event.clientX >= origin.left && event.clientX <= origin.right
+    && event.clientY >= origin.top && event.clientY <= origin.bottom;
+  if (releasedAtOrigin) {
+    resetCardDrag(cardDragButton);
+    return true;
+  }
+  return returnDraggedCard("invalid-drop");
+}
+
+function cancelCardDrag(reason = "cancelled") {
+  if (["dragging", "flying"].includes(cardDragState.phase)) return returnDraggedCard(reason);
+  if (keyboardCardSelection.instanceId || keyboardSkillSelection.active) {
+    keyboardCardSelection = { instanceId: null, targetIndex: 0 };
+    keyboardSkillSelection = { active: false, targetIndex: 0 };
+    setCombatTargetPreview(null, []);
+    renderCombatHand();
+    return true;
+  }
+  return false;
+}
+
+function confirmKeyboardCard() {
+  const target = currentKeyboardTarget();
+  if (keyboardSkillSelection.active) {
+    if (!target || cardDragState.phase !== "idle") return false;
+    keyboardSkillSelection = { active: false, targetIndex: 0 };
+    setCombatTargetPreview(null, []);
+    return useCaptainSkill(target);
+  }
+  const instanceId = keyboardCardSelection.instanceId;
+  if (!target || !instanceId || cardDragState.phase !== "idle") return false;
+  const button = ui.actionDock.querySelector(`[data-instance-id="${instanceId}"]`);
+  return beginCardFlight(instanceId, target, button);
+}
+
+function renderCombatTargetChoices(container) {
+  const targets = currentKeyboardTargets();
+  if (targets.length === 0) return;
+  const choices = makeElement("div", "combat-target-choices");
+  choices.setAttribute("role", "group");
+  choices.setAttribute("aria-label", keyboardSkillSelection.active ? "선장 기술 대상 선택" : "카드 대상 선택");
+  choices.append(makeElement("span", "combat-target-prompt", keyboardSkillSelection.active ? "기술 대상을 선택하세요" : "대상을 선택하세요"));
+  targets.forEach((target, index) => {
+    const button = makeElement("button", `combat-target-button${index === currentTargetIndex() ? " is-selected" : ""}`, targetLabel(target));
     button.type = "button";
-    button.disabled = Boolean(command.disabled || combat.locked);
-    button.append(makeElement("strong", "", command.label), makeElement("span", "", command.copy));
-    button.addEventListener("click", () => combatAction(command.id));
-    buttons.append(button);
+    button.setAttribute("data-target-valid", "true");
+    button.setAttribute("aria-pressed", String(index === currentTargetIndex()));
+    button.addEventListener("click", () => {
+      setCurrentTargetIndex(index);
+      updateKeyboardTargetUi();
+      confirmKeyboardCard();
+    });
+    choices.append(button);
   });
-  ui.actionDock.append(title, buttons);
+  container.append(choices);
+}
+
+function renderCombatHand() {
+  clearElement(ui.actionDock);
+  if (!run || run.mode !== "combat" || !run.combat?.cardState) return;
+  const combat = run.combat;
+  const state = combat.cardState;
+  const selectedStillExists = state.hand.some((instance) => instance.instanceId === keyboardCardSelection.instanceId);
+  if (!selectedStillExists) keyboardCardSelection = { instanceId: null, targetIndex: 0 };
+  if (keyboardSkillSelection.active && captainSkillError()) {
+    keyboardSkillSelection = { active: false, targetIndex: 0 };
+  }
+  ui.actionDock.classList.toggle("is-reduced-motion", prefersReducedCombatMotion());
+
+  const top = makeElement("div", "combat-hand-top");
+  const log = makeElement("div", "combat-log");
+  (combat.log?.length ? combat.log : [combat.message]).slice(0, 2).forEach((line, index) => {
+    log.append(makeElement(index === 0 ? "h2" : "p", index === 0 ? "" : "combat-log-line", line));
+  });
+  const resources = makeElement("div", "combat-resources");
+  const energy = makeElement("strong", "combat-energy", `에너지 ${state.energy}/${state.maxEnergy}`);
+  energy.setAttribute("aria-label", `현재 에너지 ${state.energy}, 최대 ${state.maxEnergy}`);
+  resources.append(energy);
+  [
+    ["뽑기", state.drawPile.length, "draw"],
+    ["버림", state.discardPile.length, "discard"],
+    ["소멸", state.exhaustPile.length, "exhaust"],
+  ].forEach(([label, count, pile]) => {
+    const button = makeElement("button", "pile-button", `${label} ${count}`);
+    button.type = "button";
+    button.setAttribute("data-pile", pile);
+    button.setAttribute("aria-label", `${label} 더미 ${count}장`);
+    resources.append(button);
+  });
+  top.append(log, resources);
+
+  const hand = makeElement("div", "combat-hand");
+  hand.setAttribute("role", "group");
+  hand.setAttribute("aria-label", "전투 손패");
+  state.hand.forEach((instance, index) => {
+    const card = CardDefinitions.getCard(instance.cardId);
+    const reason = cardDisabledReason(instance);
+    const selected = instance.instanceId === keyboardCardSelection.instanceId;
+    const button = makeElement("button", `combat-card rarity-${card.rarity}${selected ? " is-selected" : ""}`);
+    button.type = "button";
+    button.disabled = Boolean(reason);
+    button.setAttribute("data-instance-id", instance.instanceId);
+    button.setAttribute("aria-keyshortcuts", String(index + 1));
+    button.setAttribute("aria-pressed", String(selected));
+    button.append(
+      makeElement("span", "combat-card-cost", String(effectiveCardCost(instance))),
+      makeElement("strong", "combat-card-name", card.name),
+      makeElement("span", "combat-card-family", card.family),
+      makeElement("span", "combat-card-description", card.description),
+      makeElement("span", "combat-card-rarity", CARD_RARITY_LABELS[card.rarity] || card.rarity),
+    );
+    if (card.exhaust) button.append(makeElement("span", "combat-card-exhaust", "소멸"));
+    if (reason) button.append(makeElement("span", "combat-disabled-reason", reason));
+    button.addEventListener("pointerdown", (event) => beginCardDrag(event, instance.instanceId));
+    button.addEventListener("pointermove", updateCardDrag);
+    button.addEventListener("pointerup", finishCardDrag);
+    button.addEventListener("pointercancel", () => cancelCardDrag("pointercancel"));
+    button.addEventListener("click", () => {
+      if (cardDragState.phase === "idle") selectCardByInstance(instance.instanceId);
+    });
+    hand.append(button);
+  });
+
+  const footer = makeElement("div", "combat-hand-footer");
+  renderCombatTargetChoices(footer);
+  const actionButtons = makeElement("div", "combat-turn-actions");
+  const skillReason = captainSkillError();
+  const skill = makeElement("button", "captain-skill-button", `${captain().skill} (Q)`);
+  skill.type = "button";
+  skill.disabled = Boolean(skillReason);
+  skill.setAttribute("aria-pressed", String(keyboardSkillSelection.active));
+  if (skillReason) skill.append(makeElement("span", "combat-disabled-reason", skillReason));
+  skill.addEventListener("click", () => {
+    if (cardDragState.phase === "idle") selectCaptainSkill();
+  });
+  const endTurn = makeElement("button", "end-turn-button", "턴 종료 (E)");
+  endTurn.type = "button";
+  endTurn.disabled = Boolean(combat.locked || combat.victoryScheduled);
+  endTurn.addEventListener("click", () => {
+    if (cardDragState.phase === "idle") endPlayerTurn();
+  });
+  actionButtons.append(skill, endTurn);
+  footer.append(actionButtons);
+  ui.actionDock.append(top, hand, footer);
+  if (keyboardCardSelection.instanceId || keyboardSkillSelection.active) updateKeyboardTargetUi();
+}
+
+function renderCombatActions() {
+  renderCombatHand();
 }
 
 function winCombat() {
@@ -3893,8 +4301,35 @@ window.addEventListener("keydown", (event) => {
   }
 
   if (run?.mode === "combat") {
-    const commands = { f: "fire", s: "chain", a: "approach", d: "retreat", r: "repair", b: "board", q: "skill" };
-    if (commands[key]) combatAction(commands[key]);
+    const index = Number.parseInt(key, 10) - 1;
+    if (Number.isInteger(index) && index >= 0 && index < 8) {
+      event.preventDefault();
+      selectCardByIndex(index);
+      return;
+    }
+    if (key === "escape") {
+      if (cancelCardDrag("escape")) event.preventDefault();
+      return;
+    }
+    if (key === "enter") {
+      if (confirmKeyboardCard()) event.preventDefault();
+      return;
+    }
+    if (["arrowleft", "arrowup", "arrowright", "arrowdown", "tab"].includes(key)
+      && (keyboardCardSelection.instanceId || keyboardSkillSelection.active)) {
+      event.preventDefault();
+      moveTargetFocus(event.shiftKey || ["arrowleft", "arrowup"].includes(key) ? -1 : 1);
+      return;
+    }
+    if (cardDragState.phase !== "idle") return;
+    if (key === "q") {
+      event.preventDefault();
+      selectCaptainSkill();
+    }
+    if (key === "e") {
+      event.preventDefault();
+      endPlayerTurn();
+    }
   }
 });
 
