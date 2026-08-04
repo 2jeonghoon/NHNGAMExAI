@@ -105,6 +105,42 @@ test("카드 세 장을 사용해도 적은 턴 종료 전 행동하지 않는�
   assert.equal(read(context, "run.combat.cardState.turn"), 2);
 });
 
+test("선장 기술은 회피와 에너지를 보존하고 턴을 끝내지 않아 카드를 계속 사용할 수 있다", () => {
+  const context = combatWithHand(["retreat", "fire"], 3);
+  read(context, `
+    scheduledEnemyTurns = 0;
+    setTimeout = (callback) => { if (callback === startEnemyTurn) scheduledEnemyTurns += 1; };
+  `);
+  assert.equal(playNamed(context, "retreat", "sea"), true);
+  assert.equal(read(context, "run.combat.evasion"), 0.2);
+  assert.equal(read(context, "run.combat.cardState.energy"), 2);
+
+  read(context, 'combatAction("skill")');
+  assert.equal(read(context, "run.combat.cardState.energy"), 2);
+  assert.equal(read(context, "run.combat.evasion"), 0.2);
+  assert.equal(read(context, "run.combat.enemyActions"), 0);
+  assert.equal(read(context, "scheduledEnemyTurns"), 0);
+  assert.equal(read(context, "run.combat.locked"), false);
+  assert.equal(read(context, "run.combat.skillReady"), false);
+  assert.equal(read(context, "run.combat.enemies[0].hull"), 80);
+
+  read(context, 'combatAction("skill")');
+  assert.equal(read(context, "run.combat.enemies[0].hull"), 80);
+  assert.equal(playNamed(context, "fire", "enemy-0"), true);
+  assert.equal(read(context, "run.combat.cardState.energy"), 1);
+  assert.equal(read(context, "run.combat.enemies[0].hull"), 72);
+});
+
+test("모달이 열린 동안 선장 기술은 준비 상태와 전투 수치를 바꾸지 않는다", () => {
+  const context = combatWithHand(["retreat"], 3);
+  assert.equal(playNamed(context, "retreat", "sea"), true);
+  read(context, "ui.modalLayer.hidden = false");
+  const before = snapshot(context);
+  read(context, 'combatAction("skill")');
+  assert.deepEqual(snapshot(context), before);
+  assert.equal(read(context, "run.combat.skillReady"), true);
+});
+
 test("돛 0이면 접근·회피를 포인터와 키보드 경로 모두 거부한다", () => {
   const context = combatWithHand(["approach", "retreat"], 3, { sails: 0 });
   assert.match(cardError(context, "approach", "enemy-0"), /돛/);

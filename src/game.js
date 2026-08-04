@@ -1654,8 +1654,77 @@ function endPlayerTurn() {
   setTimeout(startEnemyTurn, 300);
 }
 
+function useCaptainSkill() {
+  if (!run || run.mode !== "combat" || run.combat.locked || run.combat.victoryScheduled) return false;
+  if (!ui.modalLayer.hidden) return false;
+  const combat = run.combat;
+  const enemy = focusedEnemy();
+  if (!enemy || !combat.skillReady) return false;
+  const enemyHullBefore = enemy.hull;
+  const playerHullBefore = run.hull;
+  combat.skillReady = false;
+
+  if (captain().id === "gunner") {
+    const damage = 16 + Math.floor(getCannonPower() * 0.8) + (hasArtifact("powder") ? 3 : 0);
+    enemy.hull -= damage;
+    enemy.sails -= 4;
+    combat.message = `전탄 일제사격! 적 선체에 ${damage} 피해.`;
+    addCannonEffect("player", true);
+    playTone(76, 0.28, "square", 0.065);
+  } else if (captain().id === "navigator") {
+    FleetCombat.livingEnemies(combat.enemies).forEach((candidate) => setEnemyRange(candidate.id, 3));
+    combat.evasion = 0.8;
+    run.sails = Math.min(run.maxSails, run.sails + 5);
+    const stormDamage = 10 + getGunnerBonus();
+    enemy.sails = Math.max(0, enemy.sails - stormDamage);
+    combat.message = `폭풍 가르기! 사선을 벗어나 돛을 복구하고 적 돛에 ${stormDamage} 피해를 입혔다.`;
+    playTone(720, 0.15, "triangle");
+  } else if (captain().id === "mystic") {
+    enemy.hull -= 6;
+    enemy.sails -= 7;
+    enemy.crew = Math.max(0, enemy.crew - 4);
+    run.morale = clamp(run.morale + 5, 0, 100);
+    combat.message = "심해의 속삭임이 적 함선 전체를 뒤흔든다.";
+    playTone(190, 0.3, "sine", 0.05);
+  } else {
+    const damage = 10 + Math.floor(getCannonPower() * 0.5);
+    const heal = 8 + getCarpenterRepairBonus();
+    enemy.hull -= damage;
+    enemy.sails -= 5;
+    run.hull = Math.min(run.maxHull, run.hull + heal);
+    combat.message = `저승의 진혼곡! 적에게 ${damage} 피해를 주고 선체 ${heal}을 되돌렸다.`;
+    addCannonEffect("player");
+    playTone(300, 0.24, "sine", 0.05);
+  }
+
+  Analytics.addAction("skill");
+  Analytics.addDamage(enemyHullBefore - enemy.hull, playerHullBefore - run.hull);
+  combat.log = [combat.message, ...(combat.log || [])].slice(0, 3);
+  enemy.hull = Math.max(0, enemy.hull);
+  enemy.sails = Math.max(0, enemy.sails);
+  if (!enemy.captured && (enemy.hull <= 0 || enemy.crew <= 0)) enemy.defeated = true;
+  run.hull = Math.max(0, run.hull);
+  run.morale = Math.max(0, run.morale);
+  updateHud();
+  renderActionDock();
+  if (checkDefeat()) return true;
+  if (FleetCombat.isDefeated(combat.enemies)) {
+    if (!combat.victoryScheduled) {
+      combat.victoryScheduled = true;
+      setTimeout(winCombat, 360);
+    }
+    return true;
+  }
+  focusedEnemy();
+  return true;
+}
+
 function combatAction(action) {
   if (!run || run.mode !== "combat" || run.combat.locked) return;
+  if (action === "skill") {
+    useCaptainSkill();
+    return;
+  }
   const combat = run.combat;
   const enemy = focusedEnemy();
   if (!enemy) return;
@@ -1747,41 +1816,6 @@ function combatAction(action) {
         combat.message = `접안 공격이 격퇴됐다. 선체 피해 ${damage}, 사기 -6.`;
       }
       playTone(82, 0.2, "sawtooth", 0.05);
-    }
-  } else if (action === "skill") {
-    if (!combat.skillReady) return;
-    combat.skillReady = false;
-    if (captain().id === "gunner") {
-      const damage = 16 + Math.floor(getCannonPower() * 0.8) + (hasArtifact("powder") ? 3 : 0);
-      enemy.hull -= damage;
-      enemy.sails -= 4;
-      combat.message = `전탄 일제사격! 적 선체에 ${damage} 피해.`;
-      addCannonEffect("player", true);
-      playTone(76, 0.28, "square", 0.065);
-    } else if (captain().id === "navigator") {
-      FleetCombat.livingEnemies(combat.enemies).forEach((candidate) => setEnemyRange(candidate.id, 3));
-      combat.evasion = 0.8;
-      run.sails = Math.min(run.maxSails, run.sails + 5);
-      const stormDamage = 10 + getGunnerBonus();
-      enemy.sails = Math.max(0, enemy.sails - stormDamage);
-      combat.message = `폭풍 가르기! 사선을 벗어나 돛을 복구하고 적 돛에 ${stormDamage} 피해를 입혔다.`;
-      playTone(720, 0.15, "triangle");
-    } else if (captain().id === "mystic") {
-      enemy.hull -= 6;
-      enemy.sails -= 7;
-      enemy.crew = Math.max(0, enemy.crew - 4);
-      run.morale = clamp(run.morale + 5, 0, 100);
-      combat.message = "심해의 속삭임이 적 함선 전체를 뒤흔든다.";
-      playTone(190, 0.3, "sine", 0.05);
-    } else {
-      const damage = 10 + Math.floor(getCannonPower() * 0.5);
-      const heal = 8 + getCarpenterRepairBonus();
-      enemy.hull -= damage;
-      enemy.sails -= 5;
-      run.hull = Math.min(run.maxHull, run.hull + heal);
-      combat.message = `저승의 진혼곡! 적에게 ${damage} 피해를 주고 선체 ${heal}을 되돌렸다.`;
-      addCannonEffect("player");
-      playTone(300, 0.24, "sine", 0.05);
     }
   } else {
     acted = false;
