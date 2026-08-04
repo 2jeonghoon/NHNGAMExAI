@@ -1043,6 +1043,8 @@ function startVoyage(captainId, mapId) {
     gold: 14,
     cannons: 6 + chosen.cannons,
     repairKits: 2,
+    deck: [...CardDefinitions.STARTER_DECK],
+    cardRemovals: 0,
     infamy: 0,
     crew: [makeCrew(chosen.crew)],
     artifacts: [],
@@ -1253,6 +1255,10 @@ function rollWind() {
   return { direction, speed: randomInt(1, 3) };
 }
 
+function energyOptions() {
+  return { maxEnergy: 3, handSize: 5, handLimit: 8 };
+}
+
 function startCombat(kind) {
   const enemyCount = FleetCombat.enemyCount(run.mapId, kind, run.actIndex, Math.random);
   const enemies = [];
@@ -1296,6 +1302,9 @@ function startCombat(kind) {
     firstShotUsed: false,
     victoryScheduled: false,
     enemyActions: 0,
+    cardState: typeof CardEngine === "undefined"
+      ? null
+      : CardEngine.createState(run.deck || CardDefinitions.STARTER_DECK, Math.random, energyOptions()),
     message: enemies.length > 1
       ? `${leadEnemy.name}을 기함으로 한 적 함대가 포문을 열었다.`
       : `${withJosa(leadEnemy.name, "이", "가")} 포문을 열었다.`,
@@ -1341,9 +1350,9 @@ function setEnemyRange(enemyId, value) {
   return enemy.range;
 }
 
-function playerHitChance(shotType) {
+function playerHitChance(shotType, targetEnemy = focusedEnemy()) {
   const combat = run.combat;
-  const enemy = focusedEnemy();
+  const enemy = targetEnemy;
   let chance = shotType === "chain" ? 0.76 : 0.84;
   chance -= (enemyRange(enemy.id) - 1) * (shotType === "chain" ? 0.11 : 0.09);
   if (combat.wind.direction === "순풍") chance += 0.06;
@@ -1367,11 +1376,290 @@ function consumeGuaranteedFirstShot() {
   return false;
 }
 
+function findHandInstance(instanceId) {
+  return run?.combat?.cardState?.hand.find((instance) => instance.instanceId === instanceId) || null;
+}
+
+function cardTargetId(target) {
+  return typeof target === "object" && target ? target.id : target;
+}
+
+function cardTargetCandidates(card) {
+  if (!run?.combat || !card) return [];
+  if (["approach", "tailwind_charge", "ram"].includes(card.id)) {
+    return FleetCombat.livingEnemies(run.combat.enemies).map((enemy) => ({ type: "enemy", id: enemy.id }));
+  }
+  if (card.targetType === "enemy") {
+    return FleetCombat.livingEnemies(run.combat.enemies).map((enemy) => ({ type: "enemy", id: enemy.id }));
+  }
+  if (card.targetType === "self") return [{ type: "self", id: "self" }];
+  if (card.targetType === "sea") return [{ type: "sea", id: "sea" }];
+  if (card.targetType === "allEnemies") return [{ type: "allEnemies", id: "allEnemies" }];
+  return [];
+}
+
+function maneuverUseError(cardId, enemy = null) {
+  if (["approach", "tailwind_charge", "ram", "retreat", "hard_turn", "smoke_sail"].includes(cardId)
+    && run.sails <= 0) return "돛이 없어 기동할 수 없습니다.";
+  if (["approach", "tailwind_charge", "ram"].includes(cardId) && enemy && enemyRange(enemy.id) <= 1) {
+    return "이미 가장 가까운 거리입니다.";
+  }
+  if (cardId === "tailwind_charge" && run.combat.wind.direction !== "순풍") {
+    return "순풍일 때만 사용할 수 있습니다.";
+  }
+  return null;
+}
+
+function cardUseError(instanceId, target) {
+  if (!run || run.mode !== "combat" || !run.combat?.cardState) return "전투 중에만 카드를 사용할 수 있습니다.";
+  if (!ui.modalLayer.hidden) return "모달이 열린 동안에는 카드를 사용할 수 없습니다.";
+  if (run.combat.locked || run.combat.victoryScheduled) return "지금은 카드를 사용할 수 없습니다.";
+  const instance = findHandInstance(instanceId);
+  if (!instance) return "손패에 없는 카드입니다.";
+  const card = CardDefinitions.getCard(instance.cardId);
+  if (!card) return "알 수 없는 카드입니다.";
+  if (card.captainId) return "현재는 공용 카드만 사용할 수 있습니다.";
+  if (!CardEngine.canPay(run.combat.cardState, instanceId)) return "에너지가 부족합니다.";
+
+  const targetId = cardTargetId(target);
+  const targetCandidate = cardTargetCandidates(card).find((candidate) => (
+    candidate.id === targetId
+    && (typeof target !== "object" || !target?.type || target.type === candidate.type)
+  ));
+  if (!targetCandidate) return "유효하지 않은 대상입니다.";
+  const enemy = targetCandidate.type === "enemy" ? findEnemy(targetId) : null;
+  const maneuverError = maneuverUseError(card.id, enemy);
+  if (maneuverError) return maneuverError;
+
+  if (["repair", "overhaul"].includes(card.id)) {
+    if (run.repairKits <= 0) return "수리도구가 없습니다.";
+    if (run.hull >= run.maxHull) return "선체가 이미 완전히 수리되었습니다.";
+  }
+  if (card.id === "rigging_repair" && run.sails >= run.maxSails) return "돛이 이미 완전히 수리되었습니다.";
+  if (card.id === "board" && (enemyRange(enemy.id) !== 1 || enemy.sails > enemy.maxSails * 0.55)) {
+    return "거리 1에서 적의 돛을 충분히 손상시켜야 합니다.";
+  }
+  if (["grappling_hook", "desperate_board"].includes(card.id) && enemyRange(enemy.id) !== 1) {
+    return "거리 1에서만 사용할 수 있습니다.";
+  }
+  return null;
+}
+
+function validTargets(instanceId) {
+  const instance = findHandInstance(instanceId);
+  const card = instance ? CardDefinitions.getCard(instance.cardId) : null;
+  if (!card) return [];
+  return cardTargetCandidates(card).filter((candidate) => cardUseError(instanceId, candidate.id) === null);
+}
+
+function makeCardResolution() {
+  return { damageByEnemy: {}, playerDamage: 0, moraleDelta: 0, cardsDrawn: 0, combatEnded: false };
+}
+
+function recordEnemyDamage(resolution, enemy, before) {
+  resolution.damageByEnemy[enemy.id] = {
+    hull: Math.max(0, before.hull - enemy.hull),
+    sails: Math.max(0, before.sails - enemy.sails),
+    crew: Math.max(0, before.crew - enemy.crew),
+  };
+}
+
+function damageEnemy(enemy, damage, resolution) {
+  const before = { hull: enemy.hull, sails: enemy.sails, crew: enemy.crew };
+  enemy.hull -= damage.hull || 0;
+  enemy.sails -= damage.sails || 0;
+  enemy.crew -= damage.crew || 0;
+  recordEnemyDamage(resolution, enemy, before);
+}
+
+function fireHits(enemy, shotType, chanceDelta = 0) {
+  return consumeGuaranteedFirstShot() || Math.random() <= clamp(playerHitChance(shotType, enemy) + chanceDelta, 0, 1);
+}
+
+function drawForCard(count) {
+  return CardEngine.drawCards(run.combat.cardState, count, Math.random).length;
+}
+
+function captureEnemy(enemy, chance, resolution) {
+  const before = { hull: enemy.hull, sails: enemy.sails, crew: enemy.crew };
+  if (Math.random() < chance) {
+    enemy.hull = 0;
+    enemy.captured = true;
+    run.combat.capturedCount += 1;
+    recordEnemyDamage(resolution, enemy, before);
+    return true;
+  }
+  const damage = randomInt(5, 9);
+  run.hull -= damage;
+  run.morale -= 6;
+  if (run.crew.length > 1 && !hasArtifact("phantomCrew") && Math.random() < 0.25) {
+    run.crew.splice(randomInt(0, run.crew.length - 1), 1);
+  }
+  resolution.playerDamage += damage;
+  resolution.moraleDelta -= 6;
+  return false;
+}
+
+function executePublicCard(cardId, target) {
+  const resolution = makeCardResolution();
+  const combat = run.combat;
+  const targetId = cardTargetId(target);
+  const enemy = findEnemy(targetId);
+  const living = FleetCombat.livingEnemies(combat.enemies);
+  const playerHullBefore = run.hull;
+  const moraleBefore = run.morale;
+  let message = CardDefinitions.getCard(cardId)?.name || cardId;
+
+  if (cardId === "fire" && fireHits(enemy, "fire")) {
+    const hullDamage = cannonDamage();
+    const crewDamage = Math.random() < 0.25 ? 1 : 0;
+    damageEnemy(enemy, { hull: hullDamage, crew: crewDamage }, resolution);
+    message = "포탄이 적 선체를 갈랐다.";
+  } else if (cardId === "aimed_fire" && fireHits(enemy, "fire", 0.15)) {
+    damageEnemy(enemy, { hull: cannonDamage() + 6 }, resolution);
+    message = "조준 포격이 적 선체에 명중했다.";
+  } else if (cardId === "rapid_fire") {
+    if (fireHits(enemy, "fire")) damageEnemy(enemy, { hull: Math.max(1, Math.round(cannonDamage() * 0.6)) }, resolution);
+    resolution.cardsDrawn = drawForCard(1);
+  } else if (cardId === "chain" && fireHits(enemy, "chain")) {
+    damageEnemy(enemy, { sails: randomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0) }, resolution);
+  } else if (cardId === "heavy_chain" && fireHits(enemy, "chain")) {
+    damageEnemy(enemy, { sails: randomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0) + 8 }, resolution);
+  } else if (cardId === "entangling_chain" && fireHits(enemy, "chain")) {
+    damageEnemy(enemy, { sails: randomInt(3, 6) + getGunnerBonus() }, resolution);
+    enemy.movementBlocked = true;
+  } else if (["approach", "tailwind_charge", "ram"].includes(cardId)) {
+    const chance = hasArtifact("ghostSail")
+      ? 1
+      : clamp(0.68 + getRiggerChanceBonus() + run.sails / run.maxSails * 0.12, 0.3, 0.96);
+    if (Math.random() < chance) {
+      setEnemyRange(enemy.id, enemyRange(enemy.id) - 1);
+      combat.evasion = 0.08;
+      if (cardId === "ram") {
+        damageEnemy(enemy, { hull: 8 }, resolution);
+        run.hull -= 3;
+        resolution.playerDamage += 3;
+      }
+    }
+    if (cardId === "tailwind_charge") resolution.cardsDrawn = drawForCard(1);
+  } else if (cardId === "retreat") {
+    if (living.every((candidate) => enemyRange(candidate.id) >= 3)) {
+      combat.evasion = 0.28;
+    } else {
+      living.forEach((candidate) => setEnemyRange(candidate.id, enemyRange(candidate.id) + 1));
+      combat.evasion = 0.2;
+    }
+    if (hasArtifact("anchor")) run.morale = clamp(run.morale + 2, 0, 100);
+  } else if (cardId === "hard_turn") {
+    combat.evasion = 0.15;
+    resolution.cardsDrawn = drawForCard(1);
+  } else if (cardId === "smoke_sail") {
+    living.forEach((candidate) => setEnemyRange(candidate.id, 3));
+    combat.evasion = 0.5;
+  } else if (cardId === "repair") {
+    run.repairKits -= 1;
+    run.hull = Math.min(run.maxHull, run.hull + 7 + getCarpenterRepairBonus());
+    run.sails = Math.min(run.maxSails, run.sails + 3);
+  } else if (cardId === "rigging_repair") {
+    run.sails = Math.min(run.maxSails, run.sails + 4);
+  } else if (cardId === "overhaul") {
+    run.repairKits -= 1;
+    run.hull = Math.min(run.maxHull, run.hull + 14 + getCarpenterRepairBonus());
+    run.sails = Math.min(run.maxSails, run.sails + 6);
+  } else if (cardId === "board") {
+    const chance = clamp(0.42 + (getCrewPower() - enemy.crew) / 45 + (hasTrait("brave") ? 0.08 : 0), 0.2, 0.9);
+    captureEnemy(enemy, chance, resolution);
+  } else if (cardId === "grappling_hook") {
+    damageEnemy(enemy, { sails: 5 }, resolution);
+  } else if (cardId === "desperate_board") {
+    const chance = clamp(0.42 + (getCrewPower() - enemy.crew) / 45 + (hasTrait("brave") ? 0.08 : 0) - 0.15, 0.15, 0.75);
+    captureEnemy(enemy, chance, resolution);
+  } else if (["barrage_fire", "chain_rain", "fireship"].includes(cardId)) {
+    const outcomes = living.map((candidate) => {
+      if (cardId === "barrage_fire") {
+        const hit = fireHits(candidate, "fire", -0.1);
+        return { enemy: candidate, damage: hit ? { hull: Math.max(1, Math.round(cannonDamage() * 0.6)) } : {} };
+      }
+      if (cardId === "chain_rain") {
+        const hit = fireHits(candidate, "chain", -0.1);
+        return { enemy: candidate, damage: hit ? { sails: 5 + getGunnerBonus() } : {} };
+      }
+      return { enemy: candidate, damage: { hull: 10, sails: 5 } };
+    });
+    outcomes.forEach((outcome) => damageEnemy(outcome.enemy, outcome.damage, resolution));
+    if (cardId === "fireship") run.morale -= 4;
+  }
+
+  resolution.playerDamage = Math.max(0, playerHullBefore - run.hull);
+  resolution.moraleDelta = run.morale - moraleBefore;
+  combat.message = message;
+  return resolution;
+}
+
+function applyResolution(resolution) {
+  run.combat.enemies.forEach((enemy) => {
+    enemy.hull = Math.max(0, enemy.hull);
+    enemy.sails = Math.max(0, enemy.sails);
+    enemy.crew = Math.max(0, enemy.crew);
+    if (!enemy.captured && (enemy.hull <= 0 || enemy.crew <= 0)) enemy.defeated = true;
+  });
+  run.hull = Math.max(0, run.hull);
+  run.sails = Math.max(0, run.sails);
+  run.morale = Math.max(0, run.morale);
+  resolution.combatEnded = FleetCombat.isDefeated(run.combat.enemies) || run.hull <= 0 || run.morale <= 0;
+}
+
+function recordCardUse(card, resolution) {
+  const actionByFamily = { "포격": "fire", "사슬탄": "chain", "접근": "approach", "회피": "retreat", "수리": "repair", "접안": "board", "광역": "fire" };
+  Analytics.addAction(card.id === "chain_rain" ? "chain" : actionByFamily[card.family] || card.id);
+  const dealt = Object.values(resolution.damageByEnemy).reduce((sum, damage) => sum + damage.hull, 0);
+  Analytics.addDamage(dealt, resolution.playerDamage);
+}
+
+function finishCardResolution(resolution) {
+  const combat = run.combat;
+  combat.log = [combat.message, ...(combat.log || [])].slice(0, 3);
+  updateHud();
+  renderActionDock();
+  if (checkDefeat()) return;
+  if (FleetCombat.isDefeated(combat.enemies)) {
+    if (!combat.victoryScheduled) {
+      combat.victoryScheduled = true;
+      setTimeout(winCombat, 360);
+    }
+    return;
+  }
+  focusedEnemy();
+}
+
+function playCard(instanceId, target) {
+  const error = cardUseError(instanceId, target);
+  if (error) return false;
+  const instance = findHandInstance(instanceId);
+  const card = CardDefinitions.getCard(instance.cardId);
+  CardEngine.spendForCard(run.combat.cardState, instanceId);
+  const resolution = executePublicCard(card.id, target);
+  CardEngine.finishCard(run.combat.cardState, instanceId, card.exhaust);
+  applyResolution(resolution);
+  recordCardUse(card, resolution);
+  finishCardResolution(resolution);
+  return true;
+}
+
+function endPlayerTurn() {
+  if (!run || run.mode !== "combat" || run.combat.locked || run.combat.victoryScheduled) return;
+  CardEngine.endPlayerTurn(run.combat.cardState);
+  run.combat.locked = true;
+  renderActionDock();
+  setTimeout(startEnemyTurn, 300);
+}
+
 function combatAction(action) {
   if (!run || run.mode !== "combat" || run.combat.locked) return;
   const combat = run.combat;
   const enemy = focusedEnemy();
   if (!enemy) return;
+  if (maneuverUseError(action, enemy)) return;
   const enemyHullBefore = enemy.hull;
   const playerHullBefore = run.hull;
   combat.evasion = 0;
@@ -1577,7 +1865,7 @@ function performEnemyAttack(enemy) {
 }
 
 function performEnemyManeuverOrPrepare(enemy) {
-  if (enemyRange(enemy.id) === 3 && enemy.sails > 0) {
+  if (enemyRange(enemy.id) === 3 && enemy.sails > 0 && !enemy.movementBlocked) {
     setEnemyRange(enemy.id, enemyRange(enemy.id) - 1);
     enemy.intent = "approach";
     enemy.intentReady = false;
@@ -1624,6 +1912,7 @@ function startEnemyTurn() {
       ? performEnemyAttack(enemy)
       : performEnemyManeuverOrPrepare(enemy);
     actions.push(action);
+    enemy.movementBlocked = false;
     if (action.directAttack) attacksLeft -= 1;
     if (run.hull <= 0) break;
   }
@@ -1653,9 +1942,13 @@ function finishEnemyTurn() {
 
   Analytics.addDamage(0, playerHullBefore - run.hull);
   combat.log = [combat.message, ...(combat.log || [])].slice(0, 3);
+  const defeated = checkDefeat();
+  if (!defeated && run.mode === "combat" && combat.cardState && !combat.victoryScheduled) {
+    CardEngine.startPlayerTurn(combat.cardState, {}, Math.random);
+    combat.turn = combat.cardState.turn;
+  }
   updateHud();
   renderActionDock();
-  checkDefeat();
   return actions;
 }
 
