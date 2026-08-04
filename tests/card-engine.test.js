@@ -33,6 +33,18 @@ test("턴 종료는 손패를 버리고 다음 턴에 에너지와 손패를 채
   assert.equal(state.hand.length, 5);
 });
 
+test("지속 최대 에너지는 4로 제한되고 일반 턴 충전도 이를 따른다", () => {
+  const context = loadEngine();
+  const engine = read(context, "CardEngine");
+  const state = engine.createState(["fire"], () => 0, { maxEnergy: 5, handSize: 1 });
+
+  assert.equal(state.maxEnergy, 4);
+  assert.equal(state.energy, 4);
+  engine.endPlayerTurn(state);
+  engine.startPlayerTurn(state, {}, () => 0);
+  assert.equal(state.energy, 4);
+});
+
 test("소멸 카드는 재순환하지 않고 손패는 8장을 넘지 않는다", () => {
   const { engine, state } = makeTenCardState();
   const first = state.hand[0];

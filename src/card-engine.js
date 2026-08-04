@@ -34,13 +34,14 @@ const CardEngine = (() => {
   }
 
   function createState(cardIds, randomFn = Math.random, options = {}) {
+    const maxEnergy = Math.min(4, options.maxEnergy ?? 3);
     const state = {
       drawPile: [],
       hand: [],
       discardPile: [],
       exhaustPile: [],
-      energy: options.maxEnergy ?? 3,
-      maxEnergy: options.maxEnergy ?? 3,
+      energy: maxEnergy,
+      maxEnergy,
       handSize: options.handSize ?? 5,
       handLimit: options.handLimit ?? 8,
       turn: 1,
