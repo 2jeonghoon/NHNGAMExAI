@@ -1210,7 +1210,7 @@ function renderActionDock() {
   if (run.mode === "combat") renderCombatActions();
 }
 
-function makeEnemy(kind) {
+function makeEnemy(kind, excludedNames = []) {
   const act = run.actIndex;
   const regularNames = [
     ["소금칼 밀수선", "검은 이빨 해적선", "현상금 사냥꾼 마고", "난파선 약탈자"],
@@ -1221,9 +1221,13 @@ function makeEnemy(kind) {
   const bossNames = ACTS.map((item) => item.boss);
   const boss = kind === "boss";
   const elite = kind === "elite";
-  const name = boss ? bossNames[act] : elite ? eliteNames[act] : randomChoice(regularNames[act]);
+  const availableNames = regularNames[act].filter((candidate) => !excludedNames.includes(candidate));
+  const name = boss
+    ? bossNames[act]
+    : elite
+      ? eliteNames[act]
+      : randomChoice(availableNames.length > 0 ? availableNames : regularNames[act]);
   const enemyMult = run.enemyMultiplier || 1;
-  const rewardMult = run.rewardMultiplier || 1;
   const maxHull = Math.round((boss ? 54 + act * 15 : elite ? 40 + act * 12 : 27 + act * 9 + randomInt(-2, 4)) * enemyMult);
   const maxSails = Math.round((boss ? 24 + act * 4 : elite ? 20 + act * 3 : 15 + act * 2) * enemyMult);
   const crew = Math.round((boss ? 20 + act * 5 : elite ? 16 + act * 4 : 10 + act * 3) * enemyMult);
@@ -1239,8 +1243,8 @@ function makeEnemy(kind) {
     crew,
     maxCrew: crew,
     damage: Math.round((boss ? 8 + act * 2 : elite ? 7 + act : 5 + act) * enemyMult),
-    rewardGold: Math.round((boss ? 28 + act * 10 : elite ? 20 + act * 7 : 11 + act * 5) * rewardMult),
-    rewardInfamy: Math.round((boss ? 28 + act * 8 : elite ? 15 + act * 4 : 7 + act * 2) * rewardMult),
+    rewardGold: boss ? 28 + act * 10 : elite ? 20 + act * 7 : 11 + act * 5,
+    rewardInfamy: boss ? 28 + act * 8 : elite ? 15 + act * 4 : 7 + act * 2,
   };
 }
 
@@ -1250,36 +1254,98 @@ function rollWind() {
 }
 
 function startCombat(kind) {
-  const enemy = makeEnemy(kind);
+  const enemyCount = FleetCombat.enemyCount(run.mapId, kind, run.actIndex, Math.random);
+  const enemies = [];
+  const excludedNames = [];
+  for (let index = 0; index < enemyCount; index += 1) {
+    const enemyKind = index === 0 ? kind : "battle";
+    const enemy = makeEnemy(enemyKind, excludedNames);
+    excludedNames.push(enemy.name);
+    enemies.push(enemy);
+  }
+  const statScale = FleetCombat.statScale(enemies.length);
+  enemies.forEach((enemy, index) => {
+    enemy.id = `enemy-${index}`;
+    enemy.maxHull = Math.round(enemy.maxHull * statScale);
+    enemy.hull = enemy.maxHull;
+    enemy.maxSails = Math.round(enemy.maxSails * statScale);
+    enemy.sails = enemy.maxSails;
+    enemy.maxCrew = Math.round(enemy.maxCrew * statScale);
+    enemy.crew = enemy.maxCrew;
+    enemy.damage = Math.max(1, Math.round(enemy.damage * statScale));
+    enemy.range = kind === "boss" ? 3 : randomChoice([2, 3]);
+    enemy.intent = "attack";
+    enemy.intentReady = false;
+    enemy.captured = false;
+    enemy.defeated = false;
+  });
+  const leadEnemy = enemies[0];
   run.mode = "combat";
   run.combat = {
-    enemy,
-    range: kind === "boss" ? 3 : randomChoice([2, 3]),
+    enemies,
+    focusedEnemyId: leadEnemy.id,
+    attackCursor: 0,
+    capturedCount: 0,
+    rewardGold: Math.round(leadEnemy.rewardGold * FleetCombat.rewardScale(enemies.length)),
+    rewardInfamy: Math.round(leadEnemy.rewardInfamy * FleetCombat.rewardScale(enemies.length)),
     wind: rollWind(),
     turn: 1,
     evasion: 0,
     skillReady: true,
     locked: false,
-    captured: false,
     firstShotUsed: false,
-    message: `${withJosa(enemy.name, "이", "가")} 포문을 열었다.`,
-    log: [`${withJosa(enemy.name, "이", "가")} 포문을 열었다.`],
+    victoryScheduled: false,
+    enemyActions: 0,
+    message: enemies.length > 1
+      ? `${leadEnemy.name}을 기함으로 한 적 함대가 포문을 열었다.`
+      : `${withJosa(leadEnemy.name, "이", "가")} 포문을 열었다.`,
+    log: [enemies.length > 1
+      ? `${leadEnemy.name}을 기함으로 한 적 함대가 포문을 열었다.`
+      : `${withJosa(leadEnemy.name, "이", "가")} 포문을 열었다.`],
   };
   if (hasArtifact("leviathan")) {
     run.hull = Math.min(run.maxHull, run.hull + 5);
   }
   closeModal();
   canvas.classList.remove("map-active");
-  logEvent(`${withJosa(enemy.name, "과", "와")} 교전 시작.`);
+  logEvent(enemies.length > 1
+    ? `${leadEnemy.name}을 기함으로 한 ${enemies.length}척 함대와 교전 시작.`
+    : `${withJosa(leadEnemy.name, "과", "와")} 교전 시작.`);
   Analytics.recordCombatStart();
   renderActionDock();
   playTone(160, 0.16, "sawtooth", 0.045);
 }
 
+function findEnemy(enemyId) {
+  return run?.combat?.enemies.find((enemy) => enemy.id === enemyId) || null;
+}
+
+function focusedEnemy() {
+  if (!run?.combat) return null;
+  const combat = run.combat;
+  const focused = findEnemy(combat.focusedEnemyId);
+  if (focused && !focused.defeated && !focused.captured) return focused;
+  const next = FleetCombat.livingEnemies(combat.enemies)[0] || focused || combat.enemies[0] || null;
+  if (next) combat.focusedEnemyId = next.id;
+  return next;
+}
+
+function enemyRange(enemyId) {
+  return findEnemy(enemyId)?.range ?? 3;
+}
+
+function setEnemyRange(enemyId, value) {
+  const enemy = findEnemy(enemyId);
+  if (!enemy) return null;
+  enemy.range = clamp(value, 1, 3);
+  return enemy.range;
+}
+
 function playerHitChance(shotType) {
   const combat = run.combat;
+  const enemy = focusedEnemy();
   let chance = shotType === "chain" ? 0.76 : 0.84;
-  chance -= (combat.range - 1) * (shotType === "chain" ? 0.11 : 0.09);
+  chance -= (enemyRange(enemy.id) - 1) * (shotType === "chain" ? 0.11 : 0.09);
   if (combat.wind.direction === "순풍") chance += 0.06;
   if (combat.wind.direction === "역풍" && !hasArtifact("storm")) chance -= 0.1;
   if (captain().id === "gunner") chance += 0.06;
@@ -1304,7 +1370,8 @@ function consumeGuaranteedFirstShot() {
 function combatAction(action) {
   if (!run || run.mode !== "combat" || run.combat.locked) return;
   const combat = run.combat;
-  const enemy = combat.enemy;
+  const enemy = focusedEnemy();
+  if (!enemy) return;
   const enemyHullBefore = enemy.hull;
   const playerHullBefore = run.hull;
   combat.evasion = 0;
@@ -1335,26 +1402,27 @@ function combatAction(action) {
       addCannonEffect("player", false, true);
     }
   } else if (action === "approach") {
-    if (combat.range <= 1) return;
+    if (enemyRange(enemy.id) <= 1) return;
     const chance = hasArtifact("ghostSail")
       ? 1
       : clamp(0.68 + getRiggerChanceBonus() + run.sails / run.maxSails * 0.12, 0.3, 0.96);
     if (Math.random() < chance) {
-      combat.range -= 1;
+      setEnemyRange(enemy.id, enemyRange(enemy.id) - 1);
       combat.evasion = 0.08;
-      combat.message = `바람을 타고 거리 ${combat.range}까지 접근했다.`;
+      combat.message = `바람을 타고 ${enemy.name}과의 거리 ${enemyRange(enemy.id)}까지 접근했다.`;
     } else {
       combat.message = "파도가 진로를 막아 거리를 좁히지 못했다.";
     }
     playTone(260, 0.07, "triangle");
   } else if (action === "retreat") {
-    if (combat.range >= 3) {
+    const living = FleetCombat.livingEnemies(combat.enemies);
+    if (living.every((candidate) => enemyRange(candidate.id) >= 3)) {
       combat.evasion = 0.28;
       combat.message = "돛을 비틀어 적 포격선에서 벗어났다.";
     } else {
-      combat.range += 1;
+      living.forEach((candidate) => setEnemyRange(candidate.id, enemyRange(candidate.id) + 1));
       combat.evasion = 0.2;
-      combat.message = `포격 거리를 ${combat.range}까지 벌렸다.`;
+      combat.message = "적 함대 전체와의 포격 거리를 벌렸다.";
     }
     if (hasArtifact("anchor")) {
       run.morale = clamp(run.morale + 2, 0, 100);
@@ -1370,13 +1438,14 @@ function combatAction(action) {
     combat.message = `응급수리로 선체 ${amount}, 돛 3을 복구했다.`;
     playTone(500, 0.09, "triangle");
   } else if (action === "board") {
-    if (combat.range !== 1 || enemy.sails > enemy.maxSails * 0.55) return;
+    if (enemyRange(enemy.id) !== 1 || enemy.sails > enemy.maxSails * 0.55) return;
     const chance = clamp(0.42 + (getCrewPower() - enemy.crew) / 45 + (hasTrait("brave") ? 0.08 : 0), 0.2, 0.9);
     spawnImpactSparks(482, 453, 14);
     triggerShake(8);
     if (Math.random() < chance) {
       enemy.hull = 0;
-      combat.captured = true;
+      enemy.captured = true;
+      combat.capturedCount += 1;
       combat.message = "적 갑판을 장악했다. 선장과 화물을 생포했다!";
       playTone(680, 0.18, "sawtooth", 0.04);
     } else {
@@ -1402,7 +1471,7 @@ function combatAction(action) {
       addCannonEffect("player", true);
       playTone(76, 0.28, "square", 0.065);
     } else if (captain().id === "navigator") {
-      combat.range = 3;
+      FleetCombat.livingEnemies(combat.enemies).forEach((candidate) => setEnemyRange(candidate.id, 3));
       combat.evasion = 0.8;
       run.sails = Math.min(run.maxSails, run.sails + 5);
       const stormDamage = 10 + getGunnerBonus();
@@ -1437,6 +1506,7 @@ function combatAction(action) {
   combat.locked = true;
   enemy.hull = Math.max(0, enemy.hull);
   enemy.sails = Math.max(0, enemy.sails);
+  if (!enemy.captured && (enemy.hull <= 0 || enemy.crew <= 0)) enemy.defeated = true;
   run.hull = Math.max(0, run.hull);
   run.morale = Math.max(0, run.morale);
   updateHud();
@@ -1444,33 +1514,43 @@ function combatAction(action) {
 
   if (checkDefeat()) return;
 
-  if (enemy.hull <= 0 || enemy.crew <= 0) {
-    setTimeout(winCombat, 360);
+  if (FleetCombat.isDefeated(combat.enemies)) {
+    if (!combat.victoryScheduled) {
+      combat.victoryScheduled = true;
+      setTimeout(winCombat, 360);
+    }
     return;
   }
 
-  setTimeout(enemyTurn, 300);
+  focusedEnemy();
+  setTimeout(startEnemyTurn, 300);
 }
 
-function enemyTurn() {
-  if (!run || run.mode !== "combat") return;
-  const combat = run.combat;
-  const enemy = combat.enemy;
-  const playerHullBefore = run.hull;
-  let message = "";
+function rotateFromCursor(items, cursor) {
+  if (items.length === 0) return [];
+  const offset = cursor % items.length;
+  return [...items.slice(offset), ...items.slice(0, offset)];
+}
 
-  if (combat.range === 3 && enemy.sails > 0 && Math.random() < 0.58) {
-    combat.range -= 1;
-    message = `${withJosa(enemy.name, "이", "가")} 돛을 당겨 거리를 좁혔다.`;
-  } else if (combat.range === 1 && enemy.crew > getCrewPower() * 0.8 && Math.random() < 0.3) {
+function canDirectAttack(enemy) {
+  if (enemy.intentReady) return true;
+  return !(enemyRange(enemy.id) === 3 && enemy.sails > 0 && Math.random() < 0.58);
+}
+
+function performEnemyAttack(enemy) {
+  let message = "";
+  enemy.intent = "attack";
+  enemy.intentReady = false;
+
+  if (enemyRange(enemy.id) === 1 && enemy.crew > getCrewPower() * 0.8 && Math.random() < 0.3) {
     const damage = randomInt(4, 7) + run.actIndex;
     run.hull -= damage;
     run.morale -= 5;
-    message = `적 선원들이 난입했다. 선체 피해 ${damage}, 사기 -5.`;
+    message = `${enemy.name} 선원들이 난입했다. 선체 피해 ${damage}, 사기 -5.`;
     playTone(84, 0.18, "sawtooth", 0.045);
   } else {
     const hitChance = clamp(
-      0.73 - combat.range * 0.07 - combat.evasion + run.actIndex * 0.03 - getLookoutEvasionBonus(),
+      0.73 - enemyRange(enemy.id) * 0.07 - run.combat.evasion + run.actIndex * 0.03 - getLookoutEvasionBonus(),
       0.1,
       0.88,
     );
@@ -1481,21 +1561,86 @@ function enemyTurn() {
       if (Math.random() < 0.28) {
         const sailDamage = randomInt(3, 6);
         run.sails -= sailDamage;
-        message = `적 포격이 선체 ${damage}, 돛 ${sailDamage} 피해를 입혔다.`;
+        message = `${enemy.name}의 포격이 선체 ${damage}, 돛 ${sailDamage} 피해를 입혔다.`;
       } else {
-        message = `적 포격 명중. 선체 피해 ${damage}.`;
+        message = `${enemy.name}의 포격 명중. 선체 피해 ${damage}.`;
       }
       addCannonEffect("enemy");
       playTone(72, 0.2, "square", 0.055);
     } else {
-      message = "적의 포탄이 뱃전을 아슬아슬하게 비껴갔다.";
+      message = `${enemy.name}의 포탄이 뱃전을 아슬아슬하게 비껴갔다.`;
       addCannonEffect("enemy", false, true);
     }
   }
 
+  return { enemyId: enemy.id, type: "attack", directAttack: true, message };
+}
+
+function performEnemyManeuverOrPrepare(enemy) {
+  if (enemyRange(enemy.id) === 3 && enemy.sails > 0) {
+    setEnemyRange(enemy.id, enemyRange(enemy.id) - 1);
+    enemy.intent = "approach";
+    enemy.intentReady = false;
+    return {
+      enemyId: enemy.id,
+      type: "approach",
+      directAttack: false,
+      message: `${withJosa(enemy.name, "이", "가")} 돛을 당겨 거리를 좁혔다.`,
+    };
+  }
+
+  if (Math.random() < 0.5) {
+    enemy.intent = "attack";
+    enemy.intentReady = true;
+    return {
+      enemyId: enemy.id,
+      type: "prepare",
+      directAttack: false,
+      message: `${withJosa(enemy.name, "이", "가")} 다음 포격을 준비한다.`,
+    };
+  }
+
+  enemy.intent = "hold";
+  enemy.intentReady = false;
+  return {
+    enemyId: enemy.id,
+    type: "hold",
+    directAttack: false,
+    message: `${withJosa(enemy.name, "이", "가")} 거리를 유지하며 기회를 엿본다.`,
+  };
+}
+
+function startEnemyTurn() {
+  if (!run || run.mode !== "combat") return [];
+  const combat = run.combat;
+  const living = FleetCombat.livingEnemies(combat.enemies);
+  const playerHullBefore = run.hull;
+  let attacksLeft = FleetCombat.attackBudget(run.mapId, living.length);
+  const actions = [];
+
+  combat.locked = true;
+  for (const enemy of rotateFromCursor(living, combat.attackCursor)) {
+    const action = attacksLeft > 0 && canDirectAttack(enemy)
+      ? performEnemyAttack(enemy)
+      : performEnemyManeuverOrPrepare(enemy);
+    actions.push(action);
+    if (action.directAttack) attacksLeft -= 1;
+    if (run.hull <= 0) break;
+  }
+  combat.attackCursor = (combat.attackCursor + 1) % Math.max(1, living.length);
+  combat.pendingEnemyTurn = { actions, playerHullBefore };
+  return finishEnemyTurn();
+}
+
+function finishEnemyTurn() {
+  if (!run || run.mode !== "combat" || !run.combat.pendingEnemyTurn) return [];
+  const combat = run.combat;
+  const { actions, playerHullBefore } = combat.pendingEnemyTurn;
+  delete combat.pendingEnemyTurn;
   combat.turn += 1;
+  combat.enemyActions += 1;
   combat.locked = false;
-  combat.message = message;
+  combat.message = actions.map((action) => action.message).join(" ");
   combat.evasion = 0;
   run.hull = Math.max(0, run.hull);
   run.sails = Math.max(0, run.sails);
@@ -1511,6 +1656,11 @@ function enemyTurn() {
   updateHud();
   renderActionDock();
   checkDefeat();
+  return actions;
+}
+
+function enemyTurn() {
+  return startEnemyTurn();
 }
 
 function addCannonEffect(source, broadside = false, missed = false) {
@@ -1563,7 +1713,8 @@ function triggerShake(magnitude) {
 function renderCombatActions() {
   clearElement(ui.actionDock);
   const combat = run.combat;
-  const enemy = combat.enemy;
+  const enemy = focusedEnemy();
+  if (!enemy) return;
   const title = makeElement("div", "action-title");
   const logWrap = makeElement("div", "combat-log");
   (combat.log && combat.log.length ? combat.log : [combat.message]).forEach((line, index) => {
@@ -1571,17 +1722,17 @@ function renderCombatActions() {
   });
   title.append(
     logWrap,
-    makeElement("p", "", `${combat.wind.direction} ${combat.wind.speed} · 거리 ${combat.range} · 수리도구 ${run.repairKits}`),
+    makeElement("p", "", `${combat.wind.direction} ${combat.wind.speed} · 거리 ${enemyRange(enemy.id)} · 수리도구 ${run.repairKits}`),
   );
 
   const buttons = makeElement("div", "action-buttons");
   const commands = [
     { id: "fire", label: "선체 포격", copy: `명중 ${Math.round(playerHitChance("fire") * 100)}%` },
     { id: "chain", label: "사슬탄", copy: `돛 공격 · 명중 ${Math.round(playerHitChance("chain") * 100)}%` },
-    { id: "approach", label: "접근 기동", copy: "접안 거리를 만든다", disabled: combat.range <= 1 || run.sails <= 0 },
+    { id: "approach", label: "접근 기동", copy: "접안 거리를 만든다", disabled: enemyRange(enemy.id) <= 1 || run.sails <= 0 },
     { id: "retreat", label: "회피 기동", copy: "거리를 벌리고 회피", disabled: run.sails <= 0 },
     { id: "repair", label: "응급수리", copy: `도구 ${run.repairKits}개`, disabled: run.repairKits <= 0 || run.hull >= run.maxHull },
-    { id: "board", label: "접안 공격", copy: `승률 ${Math.round(clamp(0.42 + (getCrewPower() - enemy.crew) / 45 + (hasTrait("brave") ? 0.08 : 0), 0.2, 0.9) * 100)}%`, disabled: combat.range !== 1 || enemy.sails > enemy.maxSails * 0.55 },
+    { id: "board", label: "접안 공격", copy: `승률 ${Math.round(clamp(0.42 + (getCrewPower() - enemy.crew) / 45 + (hasTrait("brave") ? 0.08 : 0), 0.2, 0.9) * 100)}%`, disabled: enemyRange(enemy.id) !== 1 || enemy.sails > enemy.maxSails * 0.55 },
     { id: "skill", label: captain().skill, copy: "선장 고유 기술", disabled: !combat.skillReady, skill: true },
   ];
 
@@ -1599,12 +1750,15 @@ function renderCombatActions() {
 function winCombat() {
   if (!run || run.mode !== "combat") return;
   const combat = run.combat;
-  const enemy = combat.enemy;
+  const enemy = combat.enemies[0];
+  const encounterName = combat.enemies.length > 1 ? "적 함대" : enemy.name;
+  const captured = combat.capturedCount > 0;
   run.mode = "reward";
-  Analytics.recordCombatEnd(true, combat.captured);
+  Analytics.recordCombatEnd(true, captured);
+  const routeMultiplier = run.rewardMultiplier || 1;
   const ransomMultiplier = hasArtifact("kingsRansom") ? 1.5 : 1;
-  let gold = adjustedGold(Math.round((enemy.rewardGold + (combat.captured ? 8 : 0)) * ransomMultiplier));
-  let infamy = Math.round((enemy.rewardInfamy + (combat.captured ? 5 : 0)) * ransomMultiplier);
+  let gold = adjustedGold(Math.round((combat.rewardGold + combat.capturedCount * 8) * routeMultiplier * ransomMultiplier));
+  let infamy = Math.round((combat.rewardInfamy + combat.capturedCount * 5) * routeMultiplier * ransomMultiplier);
   run.gold += gold;
   run.infamy += infamy;
   run.morale = clamp(
@@ -1612,11 +1766,11 @@ function winCombat() {
     0,
     100,
   );
-  logEvent(`${enemy.name} 격파. 금화 +${gold}, 악명 +${infamy}.`);
+  logEvent(`${encounterName} 격파. 금화 +${gold}, 악명 +${infamy}.`);
   clearElement(ui.actionDock);
   playTone(540, 0.16, "triangle", 0.05);
 
-  setModalBase(combat.captured ? "VESSEL CAPTURED" : "BATTLE WON", combat.captured ? "나포 성공" : "승리", `${enemy.name}의 깃발이 내려갔습니다. 살아남은 선원들이 화물칸과 선장실을 수색합니다.`);
+  setModalBase(captured ? "VESSEL CAPTURED" : "BATTLE WON", captured ? "나포 성공" : "승리", `${encounterName}의 깃발이 내려갔습니다. 살아남은 선원들이 화물칸과 선장실을 수색합니다.`);
   const stats = makeElement("div", "result-stats");
   [["금화", `+${gold}`], ["악명", `+${infamy}`], ["남은 선체", `${run.hull}/${run.maxHull}`]].forEach(([label, value]) => {
     const cell = makeElement("div");
@@ -2532,9 +2686,14 @@ function drawCombat(time) {
     return;
   }
   const combat = run.combat;
-  const enemy = combat.enemy;
+  const enemy = focusedEnemy();
+  if (!enemy) {
+    ctx.restore();
+    shakeMagnitude *= 0.85;
+    return;
+  }
   const rangePositions = { 1: 735, 2: 900, 3: 1060 };
-  const enemyX = rangePositions[combat.range];
+  const enemyX = rangePositions[enemyRange(enemy.id)];
   const bobPlayer = Math.sin(time * 0.003) * 4;
   const bobEnemy = Math.sin(time * 0.003 + 1.7) * 5;
 
@@ -2560,7 +2719,7 @@ function drawCombat(time) {
   ctx.fillStyle = "#f2dfba";
   ctx.font = "700 16px system-ui, sans-serif";
   ctx.fillText(`${combat.wind.direction} ${"▸".repeat(combat.wind.speed)}`, 548, 67);
-  ctx.fillText(`${combat.range} / 3`, 548, 96);
+  ctx.fillText(`${enemyRange(enemy.id)} / 3`, 548, 96);
 
   ctx.strokeStyle = "rgba(238, 220, 186, 0.45)";
   ctx.setLineDash([5, 8]);
