@@ -1513,6 +1513,7 @@ function startCombat(kind) {
     ? `${leadEnemy.name}을 기함으로 한 ${enemies.length}척 함대와 교전 시작.`
     : `${withJosa(leadEnemy.name, "과", "와")} 교전 시작.`);
   Analytics.recordCombatStart();
+  Analytics.recordPlayerTurn();
   renderActionDock();
   playTone(160, 0.16, "sawtooth", 0.045);
 }
@@ -1961,9 +1962,14 @@ function applyResolution(resolution) {
   resolution.combatEnded = FleetCombat.isDefeated(run.combat.enemies) || run.hull <= 0 || run.morale <= 0;
 }
 
-function recordCardUse(card, resolution) {
+function recordCardUse(card, resolution, energySpent) {
   const actionByFamily = { "포격": "fire", "사슬탄": "chain", "접근": "approach", "회피": "retreat", "수리": "repair", "접안": "board", "광역": "fire" };
-  Analytics.addAction(card.id === "chain_rain" ? "chain" : actionByFamily[card.family] || card.id);
+  const action = card.id === "chain_rain" ? "chain" : actionByFamily[card.family] || card.id;
+  Analytics.addAction(action);
+  const hitTargetCount = Object.values(resolution.damageByEnemy)
+    .filter((damage) => damage.hull > 0 || damage.sails > 0 || damage.crew > 0)
+    .length;
+  Analytics.recordCardUse(card.id, null, energySpent, hitTargetCount);
   const dealt = Object.values(resolution.damageByEnemy).reduce((sum, damage) => sum + damage.hull, 0);
   Analytics.addDamage(dealt, resolution.playerDamage);
 }
@@ -2010,7 +2016,7 @@ function playCard(instanceId, target) {
     : executePublicCard(card.id, target);
   CardEngine.finishCard(run.combat.cardState, instanceId, card.exhaust);
   applyResolution(resolution);
-  recordCardUse(card, resolution);
+  recordCardUse(card, resolution, cost);
   finishCardResolution(resolution);
   return true;
 }
@@ -2370,6 +2376,7 @@ function finishEnemyTurn() {
   if (!defeated && run.mode === "combat" && combat.cardState && !combat.victoryScheduled) {
     const modifiers = getEnergyModifiers(nextPlayerTurn);
     CardEngine.startPlayerTurn(combat.cardState, { energy: modifiers.turnEnergy }, Math.random);
+    Analytics.recordPlayerTurn();
     combat.turn = combat.cardState.turn;
     combat.smugglerPulleyUsed = false;
     combat.boardingPowerBonus = 0;
@@ -2971,7 +2978,7 @@ function winCombat() {
   const encounterName = combat.enemies.length > 1 ? "적 함대" : enemy.name;
   const captured = combat.capturedCount > 0;
   run.mode = "reward";
-  Analytics.recordCombatEnd(true, captured);
+  recordCombatAnalytics(true);
   const routeMultiplier = run.rewardMultiplier || 1;
   const ransomMultiplier = hasArtifact("kingsRansom") ? 1.5 : 1;
   let gold = adjustedGold(Math.round((combat.rewardGold + combat.capturedCount * 8) * routeMultiplier * ransomMultiplier));
@@ -3502,8 +3509,18 @@ function checkDefeat() {
   return false;
 }
 
+function recordCombatAnalytics(won) {
+  const combat = run?.combat;
+  if (!combat || combat.analyticsRecorded) return;
+  combat.analyticsRecorded = true;
+  const defeatedCount = combat.enemies.filter((enemy) => enemy.defeated).length;
+  Analytics.recordCombatEnd(won, combat.capturedCount);
+  Analytics.recordFleet(combat.enemies.length, defeatedCount, combat.capturedCount);
+}
+
 function finishRun(reason, victory) {
   if (!run || run.banked) return;
+  recordCombatAnalytics(victory);
   run.banked = true;
   run.mode = victory ? "victory" : "gameover";
   const previouslyUnlockedCaptains = new Set(CAPTAINS.filter(isCaptainUnlocked).map((item) => item.id));
@@ -3533,6 +3550,7 @@ function finishRun(reason, victory) {
     crew: run.crew.length,
     artifacts: run.artifacts.length,
     travelCount: run.travelCount,
+    finalDeck: run.deck,
   });
   updateHud();
   clearElement(ui.actionDock);
@@ -3583,6 +3601,7 @@ function confirmAbandonVoyage() {
       label: "항해 포기",
       primary: true,
       onClick: () => {
+        recordCombatAnalytics(false);
         Analytics.endRun({
           victory: false,
           deathCause: "abandoned",
@@ -3595,6 +3614,7 @@ function confirmAbandonVoyage() {
           crew: run.crew.length,
           artifacts: run.artifacts.length,
           travelCount: run.travelCount,
+          finalDeck: run.deck,
         });
         showHarbor();
       },
