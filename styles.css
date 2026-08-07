@@ -22,7 +22,7 @@
 }
 
 html {
-  min-width: 320px;
+  min-width: 0;
   min-height: 100%;
   background: var(--sea-deep);
 }
@@ -249,6 +249,266 @@ h1 span {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
   gap: 8px;
+}
+
+.combat-hand-top,
+.combat-hand-footer,
+.combat-resources,
+.combat-turn-actions,
+.combat-target-choices {
+  display: flex;
+  align-items: center;
+}
+
+.combat-hand-top {
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.combat-hand-top .combat-log {
+  min-width: 0;
+  margin: 0;
+}
+
+.combat-hand-top .combat-log h2 {
+  margin: 0;
+  color: #fff3da;
+  font: 700 14px Georgia, "Noto Serif KR", serif;
+}
+
+.combat-resources {
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.combat-energy {
+  padding: 7px 9px;
+  border: 1px solid #d4a746;
+  color: #ffe4a0;
+  background: #382d1d;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.pile-button,
+.combat-target-button,
+.captain-skill-button,
+.end-turn-button {
+  min-height: 34px;
+  border: 1px solid #4c626a;
+  color: #e5e4db;
+  background: #152e36;
+  cursor: pointer;
+  font: inherit;
+}
+
+.pile-button {
+  padding: 6px 8px;
+  color: #bfc9c7;
+  font-size: 9px;
+}
+
+.combat-hand {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+  gap: 7px;
+}
+
+.combat-card {
+  --drag-x: 0px;
+  --drag-y: 0px;
+  --flight-x: 0px;
+  --flight-y: 0px;
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 138px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 10px 9px 8px;
+  overflow: hidden;
+  border: 1px solid #516b70;
+  border-top: 3px solid #8ba1a2;
+  color: #e9e5d8;
+  background: linear-gradient(160deg, #18333b, #0b2027 72%);
+  box-shadow: 0 7px 16px rgba(0, 0, 0, 0.24);
+  cursor: grab;
+  touch-action: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.combat-card.rarity-rare { border-top-color: #66b6d1; }
+.combat-card.rarity-epic { border-top-color: #bd76de; }
+
+.combat-card:hover:not(:disabled),
+.combat-card:focus-visible,
+.combat-card.is-selected {
+  border-color: #f0c968;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(240, 201, 104, 0.28), 0 9px 22px rgba(0, 0, 0, 0.34);
+  transform: translateY(-3px);
+}
+
+.combat-card:disabled {
+  cursor: not-allowed;
+  filter: saturate(0.55);
+  opacity: 0.7;
+}
+
+.combat-card.is-dragging {
+  z-index: 30;
+  cursor: grabbing;
+  transform: translate(var(--drag-x), var(--drag-y)) rotate(-2deg) scale(1.04);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.48);
+}
+
+.combat-card.is-dragging.has-valid-target {
+  border-color: #7fe2a6;
+  box-shadow: 0 0 0 3px rgba(88, 215, 137, 0.3), 0 16px 34px rgba(0, 0, 0, 0.48);
+}
+
+.combat-card.is-flying {
+  z-index: 31;
+  pointer-events: none;
+  animation: combat-card-flight 260ms cubic-bezier(0.2, 0.72, 0.2, 1) forwards;
+}
+
+.combat-card.is-returning {
+  z-index: 31;
+  pointer-events: none;
+  animation: combat-card-return 220ms ease-out forwards;
+}
+
+@keyframes combat-card-flight {
+  from { transform: translate(var(--drag-x), var(--drag-y)) scale(1.04); opacity: 1; }
+  to { transform: translate(var(--flight-x), var(--flight-y)) scale(0.42) rotate(7deg); opacity: 0; }
+}
+
+@keyframes combat-card-return {
+  from { transform: translate(var(--drag-x), var(--drag-y)) rotate(-2deg) scale(1.04); }
+  to { transform: translate(0, 0) rotate(0) scale(1); }
+}
+
+.combat-card-cost {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  display: grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  border: 1px solid #e4b853;
+  border-radius: 50%;
+  color: #fff0bd;
+  background: #3b2d17;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.combat-card-name {
+  padding-right: 27px;
+  color: #fff2d7;
+  font: 700 12px Georgia, "Noto Serif KR", serif;
+  text-align: left;
+}
+
+.combat-card-family,
+.combat-card-rarity,
+.combat-card-exhaust {
+  color: #a8bab9;
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  text-align: left;
+}
+
+.combat-card-description {
+  flex: 1;
+  color: #c6cfcb;
+  font-size: 9px;
+  line-height: 1.42;
+  text-align: left;
+}
+
+.combat-card-exhaust {
+  color: #e8a081;
+  font-weight: 800;
+}
+
+.combat-disabled-reason {
+  display: block;
+  margin-top: 2px;
+  color: #ffb7a8;
+  font-size: 8px;
+  line-height: 1.3;
+  text-align: left;
+}
+
+.combat-hand-footer {
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.combat-target-choices {
+  min-width: 0;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.combat-target-prompt {
+  color: #c3cfcc;
+  font-size: 9px;
+}
+
+.combat-target-button {
+  padding: 6px 9px;
+  font-size: 9px;
+}
+
+.combat-target-button:hover,
+.combat-target-button:focus-visible,
+.combat-target-button.is-selected {
+  border-color: #f0c968;
+  color: #fff2cc;
+  outline: 2px solid rgba(240, 201, 104, 0.26);
+}
+
+.combat-turn-actions {
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.captain-skill-button,
+.end-turn-button {
+  padding: 7px 10px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.captain-skill-button {
+  border-color: #8e713c;
+  background: #3a3022;
+}
+
+.end-turn-button {
+  border-color: #825149;
+  background: #3b2624;
+}
+
+.captain-skill-button:disabled,
+.end-turn-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+#gameCanvas[data-target-valid] {
+  outline: 2px solid rgba(103, 231, 152, 0.7);
+  outline-offset: -3px;
 }
 
 .command-button,
@@ -1266,6 +1526,31 @@ h1 span {
 }
 
 @media (max-width: 620px) {
+  .game-tooltip::before,
+  .game-tooltip.tooltip-align-left::before,
+  .game-tooltip.tooltip-align-right::before {
+    position: fixed;
+    bottom: 14px;
+    left: 14px;
+    right: 14px;
+    width: auto;
+    max-width: none;
+    transform: translateY(4px);
+  }
+
+  .game-tooltip:hover::before,
+  .game-tooltip:focus-visible::before,
+  .game-tooltip.tooltip-align-left:hover::before,
+  .game-tooltip.tooltip-align-left:focus-visible::before,
+  .game-tooltip.tooltip-align-right:hover::before,
+  .game-tooltip.tooltip-align-right:focus-visible::before {
+    transform: translateY(0);
+  }
+
+  .game-tooltip::after {
+    display: none;
+  }
+
   .game-shell {
     padding: 0;
   }
@@ -1346,6 +1631,39 @@ h1 span {
 
   .action-buttons {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .combat-hand-top,
+  .combat-hand-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .combat-resources,
+  .combat-turn-actions {
+    justify-content: stretch;
+  }
+
+  .combat-energy,
+  .pile-button,
+  .combat-turn-actions > button {
+    flex: 1;
+  }
+
+  .combat-hand {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .combat-hand .combat-card:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .combat-card {
+    min-height: 124px;
+  }
+
+  .combat-target-choices {
+    width: 100%;
   }
 
   .command-button {
@@ -1482,5 +1800,22 @@ h1 span {
   *::after {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .combat-card,
+  .combat-card.is-dragging,
+  .combat-card.is-flying,
+  .combat-card.is-returning {
+    animation: none;
+    transition-duration: 1ms;
+    transform: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .combat-card:focus-visible,
+  .game-tooltip:focus-visible {
+    outline: 3px solid Highlight;
+    outline-offset: 3px;
   }
 }

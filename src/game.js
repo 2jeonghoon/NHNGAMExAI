@@ -27,6 +27,7 @@ const ui = {
   actionDock: document.querySelector("#actionDock"),
   modalLayer: document.querySelector("#modalLayer"),
   modalPanel: document.querySelector("#modalPanel"),
+  deckButton: document.querySelector("#deckButton"),
   soundButton: document.querySelector("#soundButton"),
   statsButton: document.querySelector("#statsButton"),
   newVoyageButton: document.querySelector("#newVoyageButton"),
@@ -330,6 +331,7 @@ const CREW_ROLES = {
   lookout: { label: "감시원", mark: "감", power: 2, effect: "적 명중률 -5%" },
   quartermaster: { label: "보급관", mark: "보", power: 2, effect: "항구 구매 비용 -1 금화" },
   surgeon: { label: "군의관", mark: "의", power: 2, effect: "전투 승리 시 사기 +3" },
+  boatswain: { label: "갑판장", mark: "갑", power: 2, effect: "전투 에너지 지원" },
 };
 
 const CREW_NAMES = [
@@ -354,6 +356,8 @@ const TRAITS = [
   { id: "eagleEyed", name: "매의 눈", effect: "포격·사슬탄 명중률 +5%" },
   { id: "superstitious", name: "미신을 믿는", effect: "유물 획득 시 사기 +3" },
   { id: "stoic", name: "무감한", effect: "식량·식수 고갈로 인한 사기 피해 없음" },
+  { id: "frugal", name: "절약가", effect: "매 전투 첫 카드 비용 -1" },
+  { id: "rallying", name: "분발", effect: "매 전투 한 번 에너지가 0이 되면 에너지 +1" },
 ];
 
 const ARTIFACTS = [
@@ -375,6 +379,10 @@ const ARTIFACTS = [
   { id: "powder", rarity: "legendary", name: "왕실 흑색화약", description: "포격 피해 +3" },
   { id: "kingsRansom", rarity: "legendary", name: "폐위된 국왕의 몸값", description: "전투 승리 보상 금화·악명 +50%" },
   { id: "leviathan", rarity: "legendary", name: "리바이어던의 심장", description: "최대 선체 +15, 전투 시작 시 선체 5 회복" },
+  { id: "navigatorHourglass", rarity: "normal", name: "항해사의 모래시계", description: "매 전투 첫 턴 에너지 +1" },
+  { id: "brassCapacitor", rarity: "rare", name: "황동 축전기", description: "세 번째 플레이어 턴마다 에너지 +1" },
+  { id: "smugglerPulley", rarity: "epic", name: "밀수업자의 도르래", description: "매 턴 첫 비용 0 카드 사용 시 에너지 +1" },
+  { id: "tyrantFleetSeal", rarity: "legendary", name: "폭군의 함대 인장", description: "최대 에너지 +1, 매 턴 드로우 4장" },
 ];
 
 const NODE_TYPES = {
@@ -404,6 +412,20 @@ let lastFrame = 0;
 let visualEffects = [];
 let mapClickRipples = [];
 let shakeMagnitude = 0;
+let combatTargetPreview = { currentTarget: null, validTargets: [] };
+let combatUiExecutionToken = 0;
+let cardDragButton = null;
+let cardDragPointerStart = null;
+let cardDragState = {
+  instanceId: null,
+  pointerId: null,
+  originRect: null,
+  currentTarget: null,
+  executionToken: 0,
+  phase: "idle",
+};
+let keyboardCardSelection = { instanceId: null, targetIndex: 0 };
+let keyboardSkillSelection = { active: false, targetIndex: 0 };
 
 function loadMeta() {
   const fallback = {
@@ -598,7 +620,41 @@ function getCrewRoleEffect(member) {
   if (member.roleId === "lookout") return `적 명중률 -${5 + tier * 3}%`;
   if (member.roleId === "quartermaster") return `항구 구매 비용 -${1 + tier} 금화`;
   if (member.roleId === "surgeon") return `전투 승리 시 사기 +${3 + tier * 2}`;
+  if (member.roleId === "boatswain") {
+    return [
+      "전투 첫 턴 에너지 +1",
+      "첫 턴 에너지 +1 · 카드 1장 추가 드로우",
+      "첫 번째와 두 번째 턴 에너지 +1",
+      "최대 에너지 +1 · 첫 턴 카드 1장 추가 드로우",
+    ][tier];
+  }
   return CREW_ROLES[member.roleId]?.effect || "";
+}
+
+function getBoatswainModifiers() {
+  const boatswains = (run?.crew || []).filter((member) => member.roleId === "boatswain");
+  const tier = Math.max(-1, ...boatswains.map((member) => RARITIES[member.rarityId]?.crewTier ?? 0));
+  if (tier < 0) return { maxEnergy: 0, turnEnergy: {}, openingDraw: 0 };
+  return [
+    { maxEnergy: 0, turnEnergy: { 1: 1 }, openingDraw: 0 },
+    { maxEnergy: 0, turnEnergy: { 1: 1 }, openingDraw: 1 },
+    { maxEnergy: 0, turnEnergy: { 1: 1, 2: 1 }, openingDraw: 0 },
+    { maxEnergy: 1, turnEnergy: {}, openingDraw: 1 },
+  ][tier];
+}
+
+function getEnergyModifiers(turn = 1) {
+  const boatswain = getBoatswainModifiers();
+  const maxEnergy = Math.min(4, 3 + boatswain.maxEnergy + (hasArtifact("tyrantFleetSeal") ? 1 : 0));
+  let turnEnergy = boatswain.turnEnergy[turn] || 0;
+  if (turn === 1 && hasArtifact("navigatorHourglass")) turnEnergy += 1;
+  if (turn % 3 === 0 && hasArtifact("brassCapacitor")) turnEnergy += 1;
+  return {
+    maxEnergy,
+    handSize: hasArtifact("tyrantFleetSeal") ? 4 : 5,
+    openingDrawBonus: boatswain.openingDraw,
+    turnEnergy,
+  };
 }
 
 function sumCrewRoleEffect(roleId, valueForMember) {
@@ -647,6 +703,7 @@ function hasTrait(id) {
 function getCrewPower() {
   if (!run) return 0;
   let total = 8 + run.crew.reduce((sum, member) => sum + member.power, 0);
+  total += run.combat?.boardingPowerBonus || 0;
   total += getMarineBoardingBonus();
   total += run.crew.filter((member) => member.trait.id === "scarred").length * 2;
   if (hasArtifact("kraken")) total += 5;
@@ -706,6 +763,11 @@ function playTone(frequency, duration = 0.08, type = "square", volume = 0.035) {
   }
 }
 
+function updateHudMetric(element, label, value) {
+  element.textContent = String(value);
+  element.closest?.(".game-tooltip")?.setAttribute("aria-label", `${label} ${value}`);
+}
+
 function updateHud() {
   ui.legacy.textContent = meta.legacyInfamy;
 
@@ -714,11 +776,18 @@ function updateHud() {
     ui.infamy.textContent = "0";
     ui.shipName.textContent = "무명의 돛단배";
     ui.captainBadge.textContent = "선장 미정";
-    [ui.hull, ui.sails, ui.morale].forEach((element) => { element.textContent = "0 / 0"; });
+    updateHudMetric(ui.hull, "선체", "0 / 0");
+    updateHudMetric(ui.sails, "돛", "0 / 0");
+    updateHudMetric(ui.morale, "사기", "0 / 100");
     [ui.hullMeter, ui.sailsMeter, ui.moraleMeter].forEach((element) => { element.style.width = "0%"; });
-    [ui.food, ui.water, ui.gold, ui.cannons].forEach((element) => { element.textContent = "0"; });
-    ui.crewPower.textContent = "전투력 0";
+    updateHudMetric(ui.food, "식량", 0);
+    updateHudMetric(ui.water, "식수", 0);
+    updateHudMetric(ui.gold, "금화", 0);
+    updateHudMetric(ui.cannons, "화력", 0);
+    updateHudMetric(ui.crewPower, "선원 목록 ·", "전투력 0");
     ui.artifactCount.textContent = "0 / 6";
+    ui.deckButton.textContent = "덱 0장";
+    ui.deckButton.disabled = true;
     clearElement(ui.crewList);
     clearElement(ui.artifactList);
     clearElement(ui.eventLog);
@@ -732,18 +801,20 @@ function updateHud() {
   ui.infamy.textContent = run.infamy;
   ui.shipName.textContent = currentCaptain.ship;
   ui.captainBadge.textContent = currentCaptain.name;
-  ui.hull.textContent = `${Math.max(0, run.hull)} / ${run.maxHull}`;
-  ui.sails.textContent = `${Math.max(0, run.sails)} / ${run.maxSails}`;
-  ui.morale.textContent = `${Math.max(0, run.morale)} / 100`;
+  updateHudMetric(ui.hull, "선체", `${Math.max(0, run.hull)} / ${run.maxHull}`);
+  updateHudMetric(ui.sails, "돛", `${Math.max(0, run.sails)} / ${run.maxSails}`);
+  updateHudMetric(ui.morale, "사기", `${Math.max(0, run.morale)} / 100`);
   ui.hullMeter.style.width = `${clamp((run.hull / run.maxHull) * 100, 0, 100)}%`;
   ui.sailsMeter.style.width = `${clamp((run.sails / run.maxSails) * 100, 0, 100)}%`;
   ui.moraleMeter.style.width = `${clamp(run.morale, 0, 100)}%`;
-  ui.food.textContent = run.food;
-  ui.water.textContent = run.water;
-  ui.gold.textContent = run.gold;
-  ui.cannons.textContent = getCannonPower();
-  ui.crewPower.textContent = `전투력 ${getCrewPower()}`;
+  updateHudMetric(ui.food, "식량", run.food);
+  updateHudMetric(ui.water, "식수", run.water);
+  updateHudMetric(ui.gold, "금화", run.gold);
+  updateHudMetric(ui.cannons, "화력", getCannonPower());
+  updateHudMetric(ui.crewPower, "선원 목록 ·", `전투력 ${getCrewPower()}`);
   ui.artifactCount.textContent = `${run.artifacts.length} / 6`;
+  ui.deckButton.textContent = `덱 ${run.deck.length}장`;
+  ui.deckButton.disabled = false;
 
   clearElement(ui.crewList);
   run.crew.forEach((member) => {
@@ -767,10 +838,12 @@ function updateHud() {
         : "항로 화면에서만 선원을 내보낼 수 있습니다.";
     actions.append(dismiss);
     row.append(copy, actions);
-    const crewTooltip = `${rarity.name} 선원 · 개인 전투력 ${member.power} · 역할 효과: ${getCrewRoleEffect(member)} · 특성 효과: ${member.trait.effect}`;
+    const crewDescription = `역할 효과: ${getCrewRoleEffect(member)} · 특성 효과: ${member.trait.effect}`;
+    const crewTooltip = `${rarity.name} 선원 · 개인 전투력 ${member.power} · ${crewDescription}`;
     row.dataset.tooltip = crewTooltip;
     row.tabIndex = 0;
-    row.setAttribute("aria-label", `${member.name}. ${crewTooltip}`);
+    row.setAttribute("aria-label", `${member.name} · ${member.role} · ${rarity.name} · 개인 전투력 ${member.power}`);
+    row.setAttribute("aria-description", crewDescription);
     ui.crewList.append(row);
   });
 
@@ -818,6 +891,125 @@ function closeInventoryModal() {
   closeModal();
   updateHud();
   renderActionDock();
+}
+
+function deckCardCounts() {
+  const counts = new Map();
+  run.deck.forEach((cardId) => counts.set(cardId, (counts.get(cardId) || 0) + 1));
+  return [...counts.entries()]
+    .map(([cardId, count]) => ({ card: CardDefinitions.getCard(cardId), cardId, count }))
+    .filter((entry) => entry.card);
+}
+
+function appendDeckList(allowRemoval) {
+  const grid = makeElement("div", "choice-grid");
+  deckCardCounts().forEach(({ card, cardId, count }) => {
+    const row = makeElement("div", `modal-choice rarity-${card.rarity}`);
+    const head = makeElement("div", "choice-head");
+    head.append(
+      makeElement("h3", "", card.name),
+      makeElement("span", "choice-cost rarity-badge", `${RARITIES[card.rarity]?.name || "노말"} · ${count}장`),
+    );
+    row.append(head, makeElement("p", "", `${card.family} · 에너지 ${card.cost} · ${card.description}`));
+    if (allowRemoval) {
+      row.append(makeButton("1장 제거", "item-remove-button", () => removeCard(cardId), !canRemoveCard()));
+    }
+    grid.append(row);
+  });
+  ui.modalPanel.append(grid);
+}
+
+function showDeck() {
+  if (!run) return;
+  const previousModal = {
+    hidden: ui.modalLayer.hidden,
+    className: ui.modalPanel.className,
+    children: Array.from(ui.modalPanel.childNodes || []),
+  };
+  const restore = () => {
+    if (previousModal.hidden) return closeInventoryModal();
+    clearElement(ui.modalPanel);
+    ui.modalPanel.className = previousModal.className;
+    ui.modalPanel.append(...previousModal.children);
+    ui.modalLayer.hidden = false;
+    updateHud();
+  };
+
+  setModalBase("DECK", `덱 ${run.deck.length}장`, "현재 항해에서 사용하는 카드입니다. 항구의 카드 정리 서비스에서만 제거할 수 있습니다.", false);
+  appendDeckList(false);
+  addModalActions([{ label: "돌아가기", primary: true, onClick: restore }]);
+}
+
+function cardRemovalPrice() {
+  return 12 + run.cardRemovals * 8;
+}
+
+function cardRemovalAvailable() {
+  return Boolean(run && (run.mode === "port" || (run.mode === "event" && run.cardRemovalEnabled === true)));
+}
+
+function canRemoveCard() {
+  return Boolean(cardRemovalAvailable() && run.deck.length > 5 && run.gold >= cardRemovalPrice());
+}
+
+function recordCardProgression(kind, cardId) {
+  const dedicatedRecorder = kind === "acquired" ? Analytics.recordCardAcquired : Analytics.recordCardRemoved;
+  if (typeof dedicatedRecorder === "function") dedicatedRecorder(cardId);
+  else Analytics.recordEvent(`card_${kind}:${cardId}`);
+}
+
+function showCardRemoval() {
+  if (!cardRemovalAvailable()) return showDeck();
+  const price = cardRemovalPrice();
+  setModalBase(
+    "CARD SERVICE",
+    "카드 정리",
+    `카드 한 장을 제거하는 비용은 금화 ${price}입니다. 제거할 때마다 비용이 8씩 오르며 덱은 최소 5장을 유지해야 합니다.`,
+    false,
+  );
+  appendDeckList(true);
+  addModalActions([{ label: run.mode === "port" ? "항구로" : "돌아가기", primary: true, onClick: run.mode === "port" ? showPort : returnToMap }]);
+  updateHud();
+}
+
+function removeCard(instanceOrIndex) {
+  if (!cardRemovalAvailable() || !canRemoveCard()) return;
+  const requestedCardId = typeof instanceOrIndex === "string"
+    ? instanceOrIndex
+    : typeof instanceOrIndex === "object" && instanceOrIndex
+      ? instanceOrIndex.cardId || instanceOrIndex.id
+      : null;
+  const index = Number.isInteger(instanceOrIndex)
+    ? instanceOrIndex
+    : run.deck.findIndex((cardId) => cardId === requestedCardId);
+  const cardId = run.deck[index];
+  const card = CardDefinitions.getCard(cardId);
+  if (!card) return;
+  const price = cardRemovalPrice();
+  let resolved = false;
+
+  setModalBase("REMOVE CARD", "카드를 제거합니까?", `${withJosa(card.name, "을", "를")} 금화 ${price}에 제거합니다. 되돌릴 수 없으며 별도 보상은 없습니다.`);
+  addModalActions([
+    { label: "취소", onClick: showCardRemoval },
+    {
+      label: "제거",
+      primary: true,
+      onClick: () => {
+        if (resolved || !canRemoveCard() || run.deck[index] !== cardId || cardRemovalPrice() !== price) return;
+        resolved = true;
+        run.deck.splice(index, 1);
+        run.gold -= price;
+        run.cardRemovals += 1;
+        run.cardsRemoved ||= [];
+        run.cardsRemoved.push(cardId);
+        recordCardProgression("removed", cardId);
+        logEvent(`${withJosa(card.name, "을", "를")} 덱에서 제거했다. 금화 -${price}.`);
+        playTone(130, 0.08, "sine");
+        updateHud();
+        showCardRemoval();
+      },
+    },
+  ]);
 }
 
 function confirmDismissCrew(memberId) {
@@ -1043,6 +1235,10 @@ function startVoyage(captainId, mapId) {
     gold: 14,
     cannons: 6 + chosen.cannons,
     repairKits: 2,
+    deck: [...CardDefinitions.STARTER_DECK],
+    cardRemovals: 0,
+    cardsAcquired: [],
+    cardsRemoved: [],
     infamy: 0,
     crew: [makeCrew(chosen.crew)],
     artifacts: [],
@@ -1210,7 +1406,7 @@ function renderActionDock() {
   if (run.mode === "combat") renderCombatActions();
 }
 
-function makeEnemy(kind) {
+function makeEnemy(kind, excludedNames = []) {
   const act = run.actIndex;
   const regularNames = [
     ["소금칼 밀수선", "검은 이빨 해적선", "현상금 사냥꾼 마고", "난파선 약탈자"],
@@ -1221,9 +1417,13 @@ function makeEnemy(kind) {
   const bossNames = ACTS.map((item) => item.boss);
   const boss = kind === "boss";
   const elite = kind === "elite";
-  const name = boss ? bossNames[act] : elite ? eliteNames[act] : randomChoice(regularNames[act]);
+  const availableNames = regularNames[act].filter((candidate) => !excludedNames.includes(candidate));
+  const name = boss
+    ? bossNames[act]
+    : elite
+      ? eliteNames[act]
+      : randomChoice(availableNames.length > 0 ? availableNames : regularNames[act]);
   const enemyMult = run.enemyMultiplier || 1;
-  const rewardMult = run.rewardMultiplier || 1;
   const maxHull = Math.round((boss ? 54 + act * 15 : elite ? 40 + act * 12 : 27 + act * 9 + randomInt(-2, 4)) * enemyMult);
   const maxSails = Math.round((boss ? 24 + act * 4 : elite ? 20 + act * 3 : 15 + act * 2) * enemyMult);
   const crew = Math.round((boss ? 20 + act * 5 : elite ? 16 + act * 4 : 10 + act * 3) * enemyMult);
@@ -1239,8 +1439,8 @@ function makeEnemy(kind) {
     crew,
     maxCrew: crew,
     damage: Math.round((boss ? 8 + act * 2 : elite ? 7 + act : 5 + act) * enemyMult),
-    rewardGold: Math.round((boss ? 28 + act * 10 : elite ? 20 + act * 7 : 11 + act * 5) * rewardMult),
-    rewardInfamy: Math.round((boss ? 28 + act * 8 : elite ? 15 + act * 4 : 7 + act * 2) * rewardMult),
+    rewardGold: boss ? 28 + act * 10 : elite ? 20 + act * 7 : 11 + act * 5,
+    rewardInfamy: boss ? 28 + act * 8 : elite ? 15 + act * 4 : 7 + act * 2,
   };
 }
 
@@ -1249,37 +1449,123 @@ function rollWind() {
   return { direction, speed: randomInt(1, 3) };
 }
 
+function energyOptions(turn = 1) {
+  return { ...getEnergyModifiers(turn), handLimit: 8 };
+}
+
 function startCombat(kind) {
-  const enemy = makeEnemy(kind);
+  const cardOptions = energyOptions(1);
+  const validDeck = [];
+  (run.deck || CardDefinitions.STARTER_DECK).forEach((cardId) => {
+    if (CardDefinitions.getCard(cardId)) validDeck.push(cardId);
+    else logEvent(`알 수 없는 카드 ${cardId}을(를) 덱에서 제외했다.`);
+  });
+  run.deck = validDeck;
+  const enemyCount = FleetCombat.enemyCount(run.mapId, kind, run.actIndex, Math.random);
+  const enemies = [];
+  const excludedNames = [];
+  for (let index = 0; index < enemyCount; index += 1) {
+    const enemyKind = index === 0 ? kind : "battle";
+    const enemy = makeEnemy(enemyKind, excludedNames);
+    excludedNames.push(enemy.name);
+    enemies.push(enemy);
+  }
+  const statScale = FleetCombat.statScale(enemies.length);
+  enemies.forEach((enemy, index) => {
+    enemy.id = `enemy-${index}`;
+    enemy.maxHull = Math.round(enemy.maxHull * statScale);
+    enemy.hull = enemy.maxHull;
+    enemy.maxSails = Math.round(enemy.maxSails * statScale);
+    enemy.sails = enemy.maxSails;
+    enemy.maxCrew = Math.round(enemy.maxCrew * statScale);
+    enemy.crew = enemy.maxCrew;
+    enemy.damage = Math.max(1, Math.round(enemy.damage * statScale));
+    enemy.range = kind === "boss" ? 3 : randomChoice([2, 3]);
+    enemy.intent = "attack";
+    enemy.intentReady = false;
+    enemy.captured = false;
+    enemy.defeated = false;
+  });
+  const leadEnemy = enemies[0];
   run.mode = "combat";
+  const cardState = typeof CardEngine === "undefined"
+    ? null
+    : CardEngine.createState(run.deck, Math.random, cardOptions);
+  if (cardState) {
+    cardState.energy += cardOptions.turnEnergy;
+    CardEngine.drawCards(cardState, cardOptions.openingDrawBonus, Math.random);
+  }
   run.combat = {
-    enemy,
-    range: kind === "boss" ? 3 : randomChoice([2, 3]),
+    enemies,
+    focusedEnemyId: leadEnemy.id,
+    attackCursor: 0,
+    capturedCount: 0,
+    rewardGold: Math.round(leadEnemy.rewardGold * FleetCombat.rewardScale(enemies.length)),
+    rewardInfamy: Math.round(leadEnemy.rewardInfamy * FleetCombat.rewardScale(enemies.length)),
     wind: rollWind(),
     turn: 1,
     evasion: 0,
     skillReady: true,
     locked: false,
-    captured: false,
     firstShotUsed: false,
-    message: `${withJosa(enemy.name, "이", "가")} 포문을 열었다.`,
-    log: [`${withJosa(enemy.name, "이", "가")} 포문을 열었다.`],
+    victoryScheduled: false,
+    enemyActions: 0,
+    cardState,
+    smugglerPulleyUsed: false,
+    frugalUsed: false,
+    rallyingUsed: false,
+    boardingPowerBonus: 0,
+    message: enemies.length > 1
+      ? `${leadEnemy.name}을 기함으로 한 적 함대가 포문을 열었다.`
+      : `${withJosa(leadEnemy.name, "이", "가")} 포문을 열었다.`,
+    log: [enemies.length > 1
+      ? `${leadEnemy.name}을 기함으로 한 적 함대가 포문을 열었다.`
+      : `${withJosa(leadEnemy.name, "이", "가")} 포문을 열었다.`],
   };
   if (hasArtifact("leviathan")) {
     run.hull = Math.min(run.maxHull, run.hull + 5);
   }
   closeModal();
   canvas.classList.remove("map-active");
-  logEvent(`${withJosa(enemy.name, "과", "와")} 교전 시작.`);
+  logEvent(enemies.length > 1
+    ? `${leadEnemy.name}을 기함으로 한 ${enemies.length}척 함대와 교전 시작.`
+    : `${withJosa(leadEnemy.name, "과", "와")} 교전 시작.`);
   Analytics.recordCombatStart();
+  Analytics.recordPlayerTurn();
   renderActionDock();
   playTone(160, 0.16, "sawtooth", 0.045);
 }
 
-function playerHitChance(shotType) {
+function findEnemy(enemyId) {
+  return run?.combat?.enemies.find((enemy) => enemy.id === enemyId) || null;
+}
+
+function focusedEnemy() {
+  if (!run?.combat) return null;
   const combat = run.combat;
+  const focused = findEnemy(combat.focusedEnemyId);
+  if (focused && !focused.defeated && !focused.captured) return focused;
+  const next = FleetCombat.livingEnemies(combat.enemies)[0] || focused || combat.enemies[0] || null;
+  if (next) combat.focusedEnemyId = next.id;
+  return next;
+}
+
+function enemyRange(enemyId) {
+  return findEnemy(enemyId)?.range ?? 3;
+}
+
+function setEnemyRange(enemyId, value) {
+  const enemy = findEnemy(enemyId);
+  if (!enemy) return null;
+  enemy.range = clamp(value, 1, 3);
+  return enemy.range;
+}
+
+function playerHitChance(shotType, targetEnemy = focusedEnemy()) {
+  const combat = run.combat;
+  const enemy = targetEnemy;
   let chance = shotType === "chain" ? 0.76 : 0.84;
-  chance -= (combat.range - 1) * (shotType === "chain" ? 0.11 : 0.09);
+  chance -= (enemyRange(enemy.id) - 1) * (shotType === "chain" ? 0.11 : 0.09);
   if (combat.wind.direction === "순풍") chance += 0.06;
   if (combat.wind.direction === "역풍" && !hasArtifact("storm")) chance -= 0.1;
   if (captain().id === "gunner") chance += 0.06;
@@ -1301,12 +1587,612 @@ function consumeGuaranteedFirstShot() {
   return false;
 }
 
-function combatAction(action) {
-  if (!run || run.mode !== "combat" || run.combat.locked) return;
+function findHandInstance(instanceId) {
+  return run?.combat?.cardState?.hand.find((instance) => instance.instanceId === instanceId) || null;
+}
+
+function cardTargetId(target) {
+  return typeof target === "object" && target ? target.id : target;
+}
+
+function cardTargetCandidates(card) {
+  if (!run?.combat || !card) return [];
+  if (card.id === "navigator_reposition") {
+    return [
+      { type: "sea", id: "sea", range: 1 },
+      { type: "sea", id: "sea", range: 3 },
+    ];
+  }
+  if (["approach", "tailwind_charge", "ram"].includes(card.id)) {
+    return FleetCombat.livingEnemies(run.combat.enemies).map((enemy) => ({ type: "enemy", id: enemy.id }));
+  }
+  if (card.targetType === "enemy") {
+    return FleetCombat.livingEnemies(run.combat.enemies).map((enemy) => ({ type: "enemy", id: enemy.id }));
+  }
+  if (card.targetType === "self") return [{ type: "self", id: "self" }];
+  if (card.targetType === "sea") return [{ type: "sea", id: "sea" }];
+  if (card.targetType === "allEnemies") return [{ type: "allEnemies", id: "allEnemies" }];
+  return [];
+}
+
+function maneuverUseError(cardId, enemy = null) {
+  if (["approach", "tailwind_charge", "ram", "retreat", "hard_turn", "smoke_sail"].includes(cardId)
+    && run.sails <= 0) return "돛이 없어 기동할 수 없습니다.";
+  if (["approach", "tailwind_charge", "ram"].includes(cardId) && enemy && enemyRange(enemy.id) <= 1) {
+    return "이미 가장 가까운 거리입니다.";
+  }
+  if (cardId === "tailwind_charge" && run.combat.wind.direction !== "순풍") {
+    return "순풍일 때만 사용할 수 있습니다.";
+  }
+  return null;
+}
+
+function effectiveCardCost(instance) {
+  const card = instance ? CardDefinitions.getCard(instance.cardId) : null;
+  const frugalDiscount = hasTrait("frugal") && !run.combat.frugalUsed ? 1 : 0;
+  return Math.max(0, (card?.cost || 0) + (instance?.costDelta || 0) - frugalDiscount);
+}
+
+function cardUseError(instanceId, target) {
+  if (!run || run.mode !== "combat" || !run.combat?.cardState) return "전투 중에만 카드를 사용할 수 있습니다.";
+  if (!ui.modalLayer.hidden) return "모달이 열린 동안에는 카드를 사용할 수 없습니다.";
+  if (run.combat.locked || run.combat.victoryScheduled) return "지금은 카드를 사용할 수 없습니다.";
+  const instance = findHandInstance(instanceId);
+  if (!instance) return "손패에 없는 카드입니다.";
+  const card = CardDefinitions.getCard(instance.cardId);
+  if (!card) return "알 수 없는 카드입니다.";
+  if (card.captainId && card.captainId !== captain().id) return "다른 선장 전용 카드는 사용할 수 없습니다.";
+  if (run.combat.cardState.energy < effectiveCardCost(instance)) return "에너지가 부족합니다.";
+  if (card.id === "navigator_reposition"
+    && (typeof target !== "object" || ![1, 3].includes(target?.range))) {
+    return "완전 재배치는 거리 1 또는 3을 선택해야 합니다.";
+  }
+
+  const targetId = cardTargetId(target);
+  const targetCandidate = cardTargetCandidates(card).find((candidate) => (
+    candidate.id === targetId
+    && (typeof target !== "object" || !target?.type || target.type === candidate.type)
+    && (candidate.range === undefined || target?.range === candidate.range)
+  ));
+  if (!targetCandidate) return "유효하지 않은 대상입니다.";
+  const enemy = targetCandidate.type === "enemy" ? findEnemy(targetId) : null;
+  const maneuverError = maneuverUseError(card.id, enemy);
+  if (maneuverError) return maneuverError;
+
+  if (["repair", "overhaul"].includes(card.id)) {
+    if (run.repairKits <= 0) return "수리도구가 없습니다.";
+    if (run.hull >= run.maxHull) return "선체가 이미 완전히 수리되었습니다.";
+  }
+  if (card.id === "rigging_repair" && run.sails >= run.maxSails) return "돛이 이미 완전히 수리되었습니다.";
+  if (card.id === "board" && (enemyRange(enemy.id) !== 1 || enemy.sails > enemy.maxSails * 0.55)) {
+    return "거리 1에서 적의 돛을 충분히 손상시켜야 합니다.";
+  }
+  if (["grappling_hook", "desperate_board"].includes(card.id) && enemyRange(enemy.id) !== 1) {
+    return "거리 1에서만 사용할 수 있습니다.";
+  }
+  return null;
+}
+
+function validTargets(instanceId) {
+  const instance = findHandInstance(instanceId);
+  const card = instance ? CardDefinitions.getCard(instance.cardId) : null;
+  if (!card) return [];
+  return cardTargetCandidates(card).filter((candidate) => cardUseError(instanceId, candidate) === null);
+}
+
+function makeCardResolution() {
+  const enemyLayout = enemyRenderLayout();
+  const enemyAnchors = Object.fromEntries(enemyLayout.map(({ enemyId }) => [
+    enemyId,
+    combatEffectAnchors({ source: "player", enemyId }, enemyLayout).end,
+  ]));
+  return {
+    damageByEnemy: {}, playerDamage: 0, moraleDelta: 0, cardsDrawn: 0,
+    combatEnded: false, visualShots: [], enemyAnchors,
+  };
+}
+
+function recordCardShot(resolution, enemy, hit, broadside = false) {
+  const enemyAnchor = resolution.enemyAnchors[enemy.id]
+    || combatEffectAnchors({ source: "player", enemyId: enemy.id }).end;
+  resolution.visualShots.push({ enemyId: enemy.id, enemyAnchor, hit, broadside });
+  return hit;
+}
+
+function resolveCardShot(resolution, enemy, shotType, chanceDelta = 0, broadside = false) {
+  return recordCardShot(resolution, enemy, fireHits(enemy, shotType, chanceDelta), broadside);
+}
+
+function recordEnemyDamage(resolution, enemy, before) {
+  const existing = resolution.damageByEnemy[enemy.id] || { hull: 0, sails: 0, crew: 0 };
+  resolution.damageByEnemy[enemy.id] = {
+    hull: existing.hull + Math.max(0, before.hull - enemy.hull),
+    sails: existing.sails + Math.max(0, before.sails - enemy.sails),
+    crew: existing.crew + Math.max(0, before.crew - enemy.crew),
+  };
+}
+
+function dealEnemyHullDamage(enemy, amount) {
+  let hullDamage = amount;
+  if (hullDamage > 0 && enemy.abyssMarkCharges > 0) {
+    hullDamage += 4;
+    enemy.abyssMarkCharges -= 1;
+  }
+  enemy.hull -= hullDamage;
+  return hullDamage;
+}
+
+function damageEnemy(enemy, damage, resolution) {
+  const before = { hull: enemy.hull, sails: enemy.sails, crew: enemy.crew };
+  dealEnemyHullDamage(enemy, damage.hull || 0);
+  enemy.sails -= damage.sails || 0;
+  enemy.crew -= damage.crew || 0;
+  recordEnemyDamage(resolution, enemy, before);
+}
+
+function fireHits(enemy, shotType, chanceDelta = 0) {
+  const preparedBonus = run.combat.nextShotAccuracyBonus || 0;
+  run.combat.nextShotAccuracyBonus = 0;
+  return consumeGuaranteedFirstShot()
+    || Math.random() <= clamp(playerHitChance(shotType, enemy) + chanceDelta + preparedBonus, 0, 1);
+}
+
+function drawForCard(count) {
+  return CardEngine.drawCards(run.combat.cardState, count, Math.random).length;
+}
+
+function captureEnemy(enemy, chance, resolution) {
+  const before = { hull: enemy.hull, sails: enemy.sails, crew: enemy.crew };
+  if (Math.random() < chance) {
+    enemy.hull = 0;
+    enemy.captured = true;
+    run.combat.capturedCount += 1;
+    recordEnemyDamage(resolution, enemy, before);
+    return true;
+  }
+  const damage = randomInt(5, 9);
+  run.hull -= damage;
+  run.morale -= 6;
+  if (run.crew.length > 1 && !hasArtifact("phantomCrew") && Math.random() < 0.25) {
+    run.crew.splice(randomInt(0, run.crew.length - 1), 1);
+  }
+  resolution.playerDamage += damage;
+  resolution.moraleDelta -= 6;
+  return false;
+}
+
+function executePublicCard(cardId, target) {
+  const resolution = makeCardResolution();
   const combat = run.combat;
-  const enemy = combat.enemy;
+  const targetId = cardTargetId(target);
+  const enemy = findEnemy(targetId);
+  const living = FleetCombat.livingEnemies(combat.enemies);
+  const playerHullBefore = run.hull;
+  const moraleBefore = run.morale;
+  let message = CardDefinitions.getCard(cardId)?.name || cardId;
+
+  if (cardId === "fire" && resolveCardShot(resolution, enemy, "fire")) {
+    const hullDamage = cannonDamage();
+    const crewDamage = Math.random() < 0.25 ? 1 : 0;
+    damageEnemy(enemy, { hull: hullDamage, crew: crewDamage }, resolution);
+    message = "포탄이 적 선체를 갈랐다.";
+  } else if (cardId === "aimed_fire" && resolveCardShot(resolution, enemy, "fire", 0.15)) {
+    damageEnemy(enemy, { hull: cannonDamage() + 6 }, resolution);
+    message = "조준 포격이 적 선체에 명중했다.";
+  } else if (cardId === "rapid_fire") {
+    if (resolveCardShot(resolution, enemy, "fire")) damageEnemy(enemy, { hull: Math.max(1, Math.round(cannonDamage() * 0.6)) }, resolution);
+    resolution.cardsDrawn = drawForCard(1);
+  } else if (cardId === "chain" && resolveCardShot(resolution, enemy, "chain")) {
+    damageEnemy(enemy, { sails: randomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0) }, resolution);
+  } else if (cardId === "heavy_chain" && resolveCardShot(resolution, enemy, "chain")) {
+    damageEnemy(enemy, { sails: randomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0) + 8 }, resolution);
+  } else if (cardId === "entangling_chain" && resolveCardShot(resolution, enemy, "chain")) {
+    damageEnemy(enemy, { sails: randomInt(3, 6) + getGunnerBonus() }, resolution);
+    enemy.movementBlocked = true;
+  } else if (["approach", "tailwind_charge", "ram"].includes(cardId)) {
+    const chance = hasArtifact("ghostSail")
+      ? 1
+      : clamp(0.68 + getRiggerChanceBonus() + run.sails / run.maxSails * 0.12, 0.3, 0.96);
+    if (Math.random() < chance) {
+      setEnemyRange(enemy.id, enemyRange(enemy.id) - 1);
+      combat.evasion = 0.08;
+      if (cardId === "ram") {
+        damageEnemy(enemy, { hull: 8 }, resolution);
+        run.hull -= 3;
+        resolution.playerDamage += 3;
+      }
+    }
+    if (cardId === "tailwind_charge") resolution.cardsDrawn = drawForCard(1);
+  } else if (cardId === "retreat") {
+    if (living.every((candidate) => enemyRange(candidate.id) >= 3)) {
+      combat.evasion = 0.28;
+    } else {
+      living.forEach((candidate) => setEnemyRange(candidate.id, enemyRange(candidate.id) + 1));
+      combat.evasion = 0.2;
+    }
+    if (hasArtifact("anchor")) run.morale = clamp(run.morale + 2, 0, 100);
+  } else if (cardId === "hard_turn") {
+    combat.evasion = 0.15;
+    resolution.cardsDrawn = drawForCard(1);
+  } else if (cardId === "smoke_sail") {
+    living.forEach((candidate) => setEnemyRange(candidate.id, 3));
+    combat.evasion = 0.5;
+  } else if (cardId === "repair") {
+    run.repairKits -= 1;
+    run.hull = Math.min(run.maxHull, run.hull + 7 + getCarpenterRepairBonus());
+    run.sails = Math.min(run.maxSails, run.sails + 3);
+  } else if (cardId === "rigging_repair") {
+    run.sails = Math.min(run.maxSails, run.sails + 4);
+  } else if (cardId === "overhaul") {
+    run.repairKits -= 1;
+    run.hull = Math.min(run.maxHull, run.hull + 14 + getCarpenterRepairBonus());
+    run.sails = Math.min(run.maxSails, run.sails + 6);
+  } else if (cardId === "board") {
+    const chance = clamp(0.42 + (getCrewPower() - enemy.crew) / 45 + (hasTrait("brave") ? 0.08 : 0), 0.2, 0.9);
+    captureEnemy(enemy, chance, resolution);
+  } else if (cardId === "grappling_hook") {
+    damageEnemy(enemy, { sails: 5 }, resolution);
+    recordCardShot(resolution, enemy, true);
+  } else if (cardId === "desperate_board") {
+    const chance = clamp(0.42 + (getCrewPower() - enemy.crew) / 45 + (hasTrait("brave") ? 0.08 : 0) - 0.15, 0.15, 0.75);
+    captureEnemy(enemy, chance, resolution);
+  } else if (["barrage_fire", "chain_rain", "fireship"].includes(cardId)) {
+    const outcomes = living.map((candidate) => {
+      if (cardId === "barrage_fire") {
+        const hit = resolveCardShot(resolution, candidate, "fire", -0.1);
+        return { enemy: candidate, damage: hit ? { hull: Math.max(1, Math.round(cannonDamage() * 0.6)) } : {} };
+      }
+      if (cardId === "chain_rain") {
+        const hit = resolveCardShot(resolution, candidate, "chain", -0.1);
+        return { enemy: candidate, damage: hit ? { sails: 5 + getGunnerBonus() } : {} };
+      }
+      recordCardShot(resolution, candidate, true);
+      return { enemy: candidate, damage: { hull: 10, sails: 5 } };
+    });
+    outcomes.forEach((outcome) => damageEnemy(outcome.enemy, outcome.damage, resolution));
+    if (cardId === "fireship") run.morale -= 4;
+  }
+
+  resolution.playerDamage = Math.max(0, playerHullBefore - run.hull);
+  resolution.moraleDelta = run.morale - moraleBefore;
+  combat.message = message;
+  return resolution;
+}
+
+function drawRandomArtilleryCard() {
+  const state = run.combat.cardState;
+  if (state.hand.length >= state.handLimit) return null;
+  const candidates = state.drawPile
+    .map((instance, index) => ({ instance, index }))
+    .filter(({ instance }) => CardDefinitions.getCard(instance.cardId)?.family === "포격");
+  if (candidates.length === 0) return null;
+  const selected = candidates[Math.floor(Math.random() * candidates.length)];
+  const [instance] = state.drawPile.splice(selected.index, 1);
+  instance.costDelta = -1;
+  state.hand.push(instance);
+  return instance;
+}
+
+function executeCaptainCard(cardId, target) {
+  const resolution = makeCardResolution();
+  const combat = run.combat;
+  const enemy = findEnemy(cardTargetId(target));
+  const living = FleetCombat.livingEnemies(combat.enemies);
+  const playerHullBefore = run.hull;
+  const moraleBefore = run.morale;
+  const cardName = CardDefinitions.getCard(cardId)?.name || cardId;
+
+  if (cardId === "gunner_steady_aim") {
+    combat.nextShotAccuracyBonus = 0.15;
+    resolution.cardsDrawn = drawForCard(1);
+  } else if (cardId === "gunner_shrapnel") {
+    if (resolveCardShot(resolution, enemy, "fire")) {
+      damageEnemy(enemy, { hull: Math.max(1, Math.round(cannonDamage() * 0.6)), crew: 2 }, resolution);
+    }
+  } else if (cardId === "gunner_double_broadside") {
+    for (let shot = 0; shot < 2; shot += 1) {
+      if (resolveCardShot(resolution, enemy, "fire", 0, true)) {
+        damageEnemy(enemy, { hull: Math.max(1, Math.round(cannonDamage() * 0.7)) }, resolution);
+      }
+    }
+  } else if (cardId === "gunner_powder_shift") {
+    resolution.cardsDrawn = drawRandomArtilleryCard() ? 1 : 0;
+  } else if (cardId === "gunner_overcharge") {
+    if (resolveCardShot(resolution, enemy, "fire")) damageEnemy(enemy, { hull: cannonDamage() + 8, sails: 5 }, resolution);
+    run.sails -= 3;
+  } else if (cardId === "gunner_magazine_open") {
+    damageEnemy(enemy, { hull: 18 + getCannonPower() }, resolution);
+    recordCardShot(resolution, enemy, true, true);
+    run.hull -= 6;
+  } else if (cardId === "gunner_fleet_broadside") {
+    const damage = 10 + getCannonPower() * 0.5;
+    living.forEach((candidate) => {
+      damageEnemy(candidate, { hull: damage, sails: 3 }, resolution);
+      recordCardShot(resolution, candidate, true, true);
+    });
+    run.hull -= 4;
+  } else if (cardId === "navigator_read_wind") {
+    combat.wind = rollWind();
+    if (combat.wind.direction === "순풍") combat.cardState.energy += 1;
+  } else if (cardId === "navigator_raise_sails") {
+    run.sails = Math.min(run.maxSails, run.sails + 5);
+    resolution.cardsDrawn = drawForCard(1);
+  } else if (cardId === "navigator_crosswind_turn") {
+    living.forEach((candidate) => setEnemyRange(candidate.id, 2));
+    combat.evasion = 0.2;
+  } else if (cardId === "navigator_wave_ride") {
+    if (run.sails >= run.maxSails / 2) resolution.cardsDrawn = drawForCard(2);
+  } else if (cardId === "navigator_tailwind_route") {
+    combat.wind = { direction: "순풍", speed: combat.wind.speed };
+    combat.tailwindUntilTurn = combat.cardState.turn + 1;
+  } else if (cardId === "navigator_reposition") {
+    const range = target.range;
+    living.forEach((candidate) => setEnemyRange(candidate.id, range));
+    combat.evasion = 0.6;
+  } else if (cardId === "navigator_storm_corridor") {
+    living.forEach((candidate) => {
+      damageEnemy(candidate, { sails: 7 }, resolution);
+      recordCardShot(resolution, candidate, true);
+      setEnemyRange(candidate.id, enemyRange(candidate.id) + 1);
+    });
+    combat.evasion = 0.3;
+  } else if (cardId === "mystic_abyss_mark") {
+    enemy.abyssMarkCharges = 2;
+  } else if (cardId === "mystic_cursed_tide") {
+    damageEnemy(enemy, { hull: 4, sails: 6, crew: 2 }, resolution);
+    recordCardShot(resolution, enemy, true);
+  } else if (cardId === "mystic_fear_whisper") {
+    combat.nextEnemyAttackReduction = 0.4;
+    run.morale = Math.min(100, run.morale + 3);
+  } else if (cardId === "mystic_dark_prophecy") {
+    resolution.cardsDrawn = drawForCard(2);
+  } else if (cardId === "mystic_blood_pact") {
+    run.morale -= 5;
+    combat.cardState.energy += 2;
+  } else if (cardId === "mystic_open_abyss") {
+    damageEnemy(enemy, { hull: 12, sails: 10, crew: 4 }, resolution);
+    recordCardShot(resolution, enemy, true, true);
+  } else if (cardId === "mystic_abyss_chorus") {
+    living.forEach((candidate) => {
+      damageEnemy(candidate, { hull: 8, sails: 8, crew: 3 }, resolution);
+      recordCardShot(resolution, candidate, true);
+    });
+    run.morale = Math.min(100, run.morale + living.length * 2);
+  } else if (cardId === "revenant_dead_nails") {
+    run.hull = Math.min(run.maxHull, run.hull + 5);
+    run.morale -= 2;
+  } else if (cardId === "revenant_ghost_deckhand") {
+    combat.boardingPowerBonus = 8;
+  } else if (cardId === "revenant_soul_drain") {
+    damageEnemy(enemy, { hull: 10 }, resolution);
+    recordCardShot(resolution, enemy, true);
+    run.hull = Math.min(run.maxHull, run.hull + 6);
+  } else if (cardId === "revenant_sinking_memory") {
+    if (run.hull <= run.maxHull / 2) {
+      resolution.cardsDrawn = drawForCard(2);
+      combat.cardState.energy += 1;
+    }
+  } else if (cardId === "revenant_death_delay") {
+    combat.deathDelayReady = true;
+  } else if (cardId === "revenant_return_abyss") {
+    damageEnemy(enemy, { hull: 18 }, resolution);
+    recordCardShot(resolution, enemy, true, true);
+    run.hull = Math.min(run.maxHull, run.hull + 12);
+    if (enemy.hull > 0 && enemy.crew > 0) run.morale -= 6;
+  } else if (cardId === "revenant_ghost_fleet") {
+    living.forEach((candidate) => {
+      damageEnemy(candidate, { hull: 10 }, resolution);
+      recordCardShot(resolution, candidate, true);
+    });
+    run.hull = Math.min(run.maxHull, run.hull + living.length * 3);
+  }
+
+  resolution.playerDamage = Math.max(0, playerHullBefore - run.hull);
+  resolution.moraleDelta = run.morale - moraleBefore;
+  combat.message = cardName;
+  return resolution;
+}
+
+function applyDeathDelay() {
+  if (run.hull <= 0 && run.combat.deathDelayReady) {
+    run.hull = 1;
+    run.combat.deathDelayReady = false;
+    return true;
+  }
+  return false;
+}
+
+function applyResolution(resolution) {
+  run.combat.enemies.forEach((enemy) => {
+    enemy.hull = Math.max(0, enemy.hull);
+    enemy.sails = Math.max(0, enemy.sails);
+    enemy.crew = Math.max(0, enemy.crew);
+    if (!enemy.captured && (enemy.hull <= 0 || enemy.crew <= 0)) enemy.defeated = true;
+  });
+  applyDeathDelay();
+  run.hull = Math.max(0, run.hull);
+  run.sails = Math.max(0, run.sails);
+  run.morale = Math.max(0, run.morale);
+  resolution.combatEnded = FleetCombat.isDefeated(run.combat.enemies) || run.hull <= 0 || run.morale <= 0;
+}
+
+function recordCardUse(card, resolution, energySpent) {
+  const actionByFamily = {
+    "포격": "fire", "사슬탄": "chain", "접근": "approach", "회피": "retreat", "수리": "repair", "접안": "board",
+    "광역": "fire", "항해": "approach", "주술": "fire", "망령": "repair",
+  };
+  const action = card.id === "chain_rain" ? "chain" : actionByFamily[card.family] || card.id;
+  const hitTargetCount = Object.values(resolution.damageByEnemy)
+    .filter((damage) => damage.hull > 0 || damage.sails > 0 || damage.crew > 0)
+    .length;
+  Analytics.recordCardUse(
+    card.id,
+    action,
+    energySpent,
+    hitTargetCount,
+    card.targetType === "allEnemies" ? "area" : "singleTarget",
+  );
+  const dealt = Object.values(resolution.damageByEnemy).reduce((sum, damage) => sum + damage.hull, 0);
+  Analytics.addDamage(dealt, resolution.playerDamage);
+}
+
+function queueCardAttackEffects(resolution) {
+  resolution.visualShots.forEach((shot, index) => {
+    const showEffect = () => addCannonEffect(
+      "player", shot.broadside, !shot.hit, shot.enemyId, shot.enemyAnchor,
+    );
+    if (index === 0) showEffect();
+    else setTimeout(showEffect, index * 80);
+  });
+}
+
+function finishCardResolution(resolution) {
+  const combat = run.combat;
+  combat.log = [combat.message, ...(combat.log || [])].slice(0, 3);
+  focusedEnemy();
+  updateHud();
+  renderActionDock();
+  if (checkDefeat()) return;
+  if (FleetCombat.isDefeated(combat.enemies)) {
+    if (!combat.victoryScheduled) {
+      combat.victoryScheduled = true;
+      setTimeout(winCombat, 360);
+    }
+    return;
+  }
+  focusedEnemy();
+}
+
+function playCard(instanceId, target) {
+  const error = cardUseError(instanceId, target);
+  if (error) return false;
+  const instance = findHandInstance(instanceId);
+  const card = CardDefinitions.getCard(instance.cardId);
+  const combat = run.combat;
+  const usesFrugal = hasTrait("frugal") && !combat.frugalUsed;
+  const cost = effectiveCardCost(instance);
+  const energyBefore = combat.cardState.energy;
+  if (usesFrugal) instance.costDelta -= 1;
+  CardEngine.spendForCard(run.combat.cardState, instanceId);
+  if (usesFrugal) combat.frugalUsed = true;
+  if (hasTrait("rallying") && !combat.rallyingUsed && energyBefore > 0 && combat.cardState.energy === 0) {
+    combat.cardState.energy += 1;
+    combat.rallyingUsed = true;
+  }
+  if (hasArtifact("smugglerPulley") && !combat.smugglerPulleyUsed && cost === 0) {
+    combat.cardState.energy += 1;
+    combat.smugglerPulleyUsed = true;
+  }
+  const resolution = card.captainId
+    ? executeCaptainCard(card.id, target)
+    : executePublicCard(card.id, target);
+  CardEngine.finishCard(run.combat.cardState, instanceId, card.exhaust);
+  applyResolution(resolution);
+  queueCardAttackEffects(resolution);
+  recordCardUse(card, resolution, cost);
+  finishCardResolution(resolution);
+  return true;
+}
+
+function endPlayerTurn() {
+  if (!run || run.mode !== "combat" || run.combat.locked || run.combat.victoryScheduled) return;
+  CardEngine.endPlayerTurn(run.combat.cardState);
+  run.combat.boardingPowerBonus = 0;
+  run.combat.locked = true;
+  renderActionDock();
+  setTimeout(startEnemyTurn, 300);
+}
+
+function captainSkillError(target) {
+  if (!run || run.mode !== "combat" || !run.combat) return "전투 중에만 선장 기술을 사용할 수 있습니다.";
+  if (!ui.modalLayer.hidden) return "모달이 열린 동안에는 선장 기술을 사용할 수 없습니다.";
+  if (run.combat.locked || run.combat.victoryScheduled) return "지금은 선장 기술을 사용할 수 없습니다.";
+  if (!run.combat.skillReady) return "이번 전투에서는 이미 선장 기술을 사용했습니다.";
+  const targetId = target === undefined ? run.combat.focusedEnemyId : cardTargetId(target);
+  const enemy = findEnemy(targetId);
+  if (!enemy || enemy.defeated || enemy.captured) return "유효한 적 대상을 선택해야 합니다.";
+  return null;
+}
+
+function useCaptainSkill(target) {
+  if (captainSkillError(target)) return false;
+  const combat = run.combat;
+  const targetId = target === undefined ? combat.focusedEnemyId : cardTargetId(target);
+  const enemy = findEnemy(targetId);
   const enemyHullBefore = enemy.hull;
   const playerHullBefore = run.hull;
+  const enemyEffectAnchor = combatEffectAnchors({ source: "player", enemyId: enemy.id }).end;
+  combat.skillReady = false;
+
+  if (captain().id === "gunner") {
+    const damage = 16 + Math.floor(getCannonPower() * 0.8) + (hasArtifact("powder") ? 3 : 0);
+    dealEnemyHullDamage(enemy, damage);
+    enemy.sails -= 4;
+    combat.message = `전탄 일제사격! 적 선체에 ${damage} 피해.`;
+    addCannonEffect("player", true, false, enemy.id, enemyEffectAnchor);
+    playTone(76, 0.28, "square", 0.065);
+  } else if (captain().id === "navigator") {
+    FleetCombat.livingEnemies(combat.enemies).forEach((candidate) => setEnemyRange(candidate.id, 3));
+    combat.evasion = 0.8;
+    run.sails = Math.min(run.maxSails, run.sails + 5);
+    const stormDamage = 10 + getGunnerBonus();
+    enemy.sails = Math.max(0, enemy.sails - stormDamage);
+    combat.message = `폭풍 가르기! 사선을 벗어나 돛을 복구하고 적 돛에 ${stormDamage} 피해를 입혔다.`;
+    playTone(720, 0.15, "triangle");
+  } else if (captain().id === "mystic") {
+    dealEnemyHullDamage(enemy, 6);
+    enemy.sails -= 7;
+    enemy.crew = Math.max(0, enemy.crew - 4);
+    run.morale = clamp(run.morale + 5, 0, 100);
+    combat.message = "심해의 속삭임이 적 함선 전체를 뒤흔든다.";
+    playTone(190, 0.3, "sine", 0.05);
+  } else {
+    const damage = 10 + Math.floor(getCannonPower() * 0.5);
+    const heal = 8 + getCarpenterRepairBonus();
+    dealEnemyHullDamage(enemy, damage);
+    enemy.sails -= 5;
+    run.hull = Math.min(run.maxHull, run.hull + heal);
+    combat.message = `저승의 진혼곡! 적에게 ${damage} 피해를 주고 선체 ${heal}을 되돌렸다.`;
+    addCannonEffect("player", false, false, enemy.id, enemyEffectAnchor);
+    playTone(300, 0.24, "sine", 0.05);
+  }
+
+  Analytics.addAction("skill");
+  Analytics.addDamage(enemyHullBefore - enemy.hull, playerHullBefore - run.hull);
+  combat.log = [combat.message, ...(combat.log || [])].slice(0, 3);
+  enemy.hull = Math.max(0, enemy.hull);
+  enemy.sails = Math.max(0, enemy.sails);
+  if (!enemy.captured && (enemy.hull <= 0 || enemy.crew <= 0)) enemy.defeated = true;
+  run.hull = Math.max(0, run.hull);
+  run.morale = Math.max(0, run.morale);
+  focusedEnemy();
+  updateHud();
+  renderActionDock();
+  if (checkDefeat()) return true;
+  if (FleetCombat.isDefeated(combat.enemies)) {
+    if (!combat.victoryScheduled) {
+      combat.victoryScheduled = true;
+      setTimeout(winCombat, 360);
+    }
+    return true;
+  }
+  focusedEnemy();
+  return true;
+}
+
+function combatAction(action) {
+  if (!run || run.mode !== "combat" || run.combat.locked) return;
+  if (action === "skill") {
+    useCaptainSkill();
+    return;
+  }
+  const combat = run.combat;
+  const enemy = focusedEnemy();
+  if (!enemy) return;
+  if (maneuverUseError(action, enemy)) return;
+  const enemyHullBefore = enemy.hull;
+  const playerHullBefore = run.hull;
+  const enemyEffectAnchor = combatEffectAnchors({ source: "player", enemyId: enemy.id }).end;
   combat.evasion = 0;
   let acted = true;
 
@@ -1316,11 +2202,11 @@ function combatAction(action) {
       enemy.hull -= damage;
       if (Math.random() < 0.25) enemy.crew = Math.max(0, enemy.crew - 1);
       combat.message = `포탄이 적 선체를 갈랐다. 피해 ${damage}.`;
-      addCannonEffect("player");
+      addCannonEffect("player", false, false, enemy.id, enemyEffectAnchor);
       playTone(92, 0.18, "square", 0.055);
     } else {
       combat.message = "일제사격이 파도 너머로 빗나갔다.";
-      addCannonEffect("player", false, true);
+      addCannonEffect("player", false, true, enemy.id, enemyEffectAnchor);
       playTone(130, 0.08, "sine");
     }
   } else if (action === "chain") {
@@ -1328,33 +2214,34 @@ function combatAction(action) {
       const damage = randomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0);
       enemy.sails -= damage;
       combat.message = `사슬탄이 적의 돛을 찢었다. 돛 피해 ${damage}.`;
-      addCannonEffect("player");
+      addCannonEffect("player", false, false, enemy.id, enemyEffectAnchor);
       playTone(110, 0.14, "square", 0.05);
     } else {
       combat.message = "사슬탄이 적 돛대를 스쳤다.";
-      addCannonEffect("player", false, true);
+      addCannonEffect("player", false, true, enemy.id, enemyEffectAnchor);
     }
   } else if (action === "approach") {
-    if (combat.range <= 1) return;
+    if (enemyRange(enemy.id) <= 1) return;
     const chance = hasArtifact("ghostSail")
       ? 1
       : clamp(0.68 + getRiggerChanceBonus() + run.sails / run.maxSails * 0.12, 0.3, 0.96);
     if (Math.random() < chance) {
-      combat.range -= 1;
+      setEnemyRange(enemy.id, enemyRange(enemy.id) - 1);
       combat.evasion = 0.08;
-      combat.message = `바람을 타고 거리 ${combat.range}까지 접근했다.`;
+      combat.message = `바람을 타고 ${enemy.name}과의 거리 ${enemyRange(enemy.id)}까지 접근했다.`;
     } else {
       combat.message = "파도가 진로를 막아 거리를 좁히지 못했다.";
     }
     playTone(260, 0.07, "triangle");
   } else if (action === "retreat") {
-    if (combat.range >= 3) {
+    const living = FleetCombat.livingEnemies(combat.enemies);
+    if (living.every((candidate) => enemyRange(candidate.id) >= 3)) {
       combat.evasion = 0.28;
       combat.message = "돛을 비틀어 적 포격선에서 벗어났다.";
     } else {
-      combat.range += 1;
+      living.forEach((candidate) => setEnemyRange(candidate.id, enemyRange(candidate.id) + 1));
       combat.evasion = 0.2;
-      combat.message = `포격 거리를 ${combat.range}까지 벌렸다.`;
+      combat.message = "적 함대 전체와의 포격 거리를 벌렸다.";
     }
     if (hasArtifact("anchor")) {
       run.morale = clamp(run.morale + 2, 0, 100);
@@ -1370,13 +2257,14 @@ function combatAction(action) {
     combat.message = `응급수리로 선체 ${amount}, 돛 3을 복구했다.`;
     playTone(500, 0.09, "triangle");
   } else if (action === "board") {
-    if (combat.range !== 1 || enemy.sails > enemy.maxSails * 0.55) return;
+    if (enemyRange(enemy.id) !== 1 || enemy.sails > enemy.maxSails * 0.55) return;
     const chance = clamp(0.42 + (getCrewPower() - enemy.crew) / 45 + (hasTrait("brave") ? 0.08 : 0), 0.2, 0.9);
     spawnImpactSparks(482, 453, 14);
     triggerShake(8);
     if (Math.random() < chance) {
       enemy.hull = 0;
-      combat.captured = true;
+      enemy.captured = true;
+      combat.capturedCount += 1;
       combat.message = "적 갑판을 장악했다. 선장과 화물을 생포했다!";
       playTone(680, 0.18, "sawtooth", 0.04);
     } else {
@@ -1391,41 +2279,6 @@ function combatAction(action) {
       }
       playTone(82, 0.2, "sawtooth", 0.05);
     }
-  } else if (action === "skill") {
-    if (!combat.skillReady) return;
-    combat.skillReady = false;
-    if (captain().id === "gunner") {
-      const damage = 16 + Math.floor(getCannonPower() * 0.8) + (hasArtifact("powder") ? 3 : 0);
-      enemy.hull -= damage;
-      enemy.sails -= 4;
-      combat.message = `전탄 일제사격! 적 선체에 ${damage} 피해.`;
-      addCannonEffect("player", true);
-      playTone(76, 0.28, "square", 0.065);
-    } else if (captain().id === "navigator") {
-      combat.range = 3;
-      combat.evasion = 0.8;
-      run.sails = Math.min(run.maxSails, run.sails + 5);
-      const stormDamage = 10 + getGunnerBonus();
-      enemy.sails = Math.max(0, enemy.sails - stormDamage);
-      combat.message = `폭풍 가르기! 사선을 벗어나 돛을 복구하고 적 돛에 ${stormDamage} 피해를 입혔다.`;
-      playTone(720, 0.15, "triangle");
-    } else if (captain().id === "mystic") {
-      enemy.hull -= 6;
-      enemy.sails -= 7;
-      enemy.crew = Math.max(0, enemy.crew - 4);
-      run.morale = clamp(run.morale + 5, 0, 100);
-      combat.message = "심해의 속삭임이 적 함선 전체를 뒤흔든다.";
-      playTone(190, 0.3, "sine", 0.05);
-    } else {
-      const damage = 10 + Math.floor(getCannonPower() * 0.5);
-      const heal = 8 + getCarpenterRepairBonus();
-      enemy.hull -= damage;
-      enemy.sails -= 5;
-      run.hull = Math.min(run.maxHull, run.hull + heal);
-      combat.message = `저승의 진혼곡! 적에게 ${damage} 피해를 주고 선체 ${heal}을 되돌렸다.`;
-      addCannonEffect("player");
-      playTone(300, 0.24, "sine", 0.05);
-    }
   } else {
     acted = false;
   }
@@ -1437,6 +2290,7 @@ function combatAction(action) {
   combat.locked = true;
   enemy.hull = Math.max(0, enemy.hull);
   enemy.sails = Math.max(0, enemy.sails);
+  if (!enemy.captured && (enemy.hull <= 0 || enemy.crew <= 0)) enemy.defeated = true;
   run.hull = Math.max(0, run.hull);
   run.morale = Math.max(0, run.morale);
   updateHud();
@@ -1444,81 +2298,187 @@ function combatAction(action) {
 
   if (checkDefeat()) return;
 
-  if (enemy.hull <= 0 || enemy.crew <= 0) {
-    setTimeout(winCombat, 360);
+  if (FleetCombat.isDefeated(combat.enemies)) {
+    if (!combat.victoryScheduled) {
+      combat.victoryScheduled = true;
+      setTimeout(winCombat, 360);
+    }
     return;
   }
 
-  setTimeout(enemyTurn, 300);
+  focusedEnemy();
+  setTimeout(startEnemyTurn, 300);
 }
 
-function enemyTurn() {
-  if (!run || run.mode !== "combat") return;
-  const combat = run.combat;
-  const enemy = combat.enemy;
+function rotateFromCursor(items, cursor) {
+  if (items.length === 0) return [];
+  const offset = cursor % items.length;
+  return [...items.slice(offset), ...items.slice(0, offset)];
+}
+
+function canDirectAttack(enemy) {
+  if (enemy.intentReady) return true;
+  return !(enemyRange(enemy.id) === 3 && enemy.sails > 0 && Math.random() < 0.58);
+}
+
+function performEnemyAttack(enemy) {
   const playerHullBefore = run.hull;
   let message = "";
+  const damageReduction = run.combat.nextEnemyAttackReduction || 0;
+  run.combat.nextEnemyAttackReduction = 0;
+  enemy.intent = "attack";
+  enemy.intentReady = false;
 
-  if (combat.range === 3 && enemy.sails > 0 && Math.random() < 0.58) {
-    combat.range -= 1;
-    message = `${withJosa(enemy.name, "이", "가")} 돛을 당겨 거리를 좁혔다.`;
-  } else if (combat.range === 1 && enemy.crew > getCrewPower() * 0.8 && Math.random() < 0.3) {
-    const damage = randomInt(4, 7) + run.actIndex;
+  if (enemyRange(enemy.id) === 1 && enemy.crew > getCrewPower() * 0.8 && Math.random() < 0.3) {
+    const damage = Math.round((randomInt(4, 7) + run.actIndex) * (1 - damageReduction));
     run.hull -= damage;
     run.morale -= 5;
-    message = `적 선원들이 난입했다. 선체 피해 ${damage}, 사기 -5.`;
+    message = `${enemy.name} 선원들이 난입했다. 선체 피해 ${damage}, 사기 -5.`;
     playTone(84, 0.18, "sawtooth", 0.045);
   } else {
     const hitChance = clamp(
-      0.73 - combat.range * 0.07 - combat.evasion + run.actIndex * 0.03 - getLookoutEvasionBonus(),
+      0.73 - enemyRange(enemy.id) * 0.07 - run.combat.evasion + run.actIndex * 0.03 - getLookoutEvasionBonus(),
       0.1,
       0.88,
     );
     if (Math.random() < hitChance) {
-      const damage = enemy.damage + randomInt(0, 4);
+      const damage = Math.round((enemy.damage + randomInt(0, 4)) * (1 - damageReduction));
       run.hull -= damage;
       run.morale -= 2;
       if (Math.random() < 0.28) {
         const sailDamage = randomInt(3, 6);
         run.sails -= sailDamage;
-        message = `적 포격이 선체 ${damage}, 돛 ${sailDamage} 피해를 입혔다.`;
+        message = `${enemy.name}의 포격이 선체 ${damage}, 돛 ${sailDamage} 피해를 입혔다.`;
       } else {
-        message = `적 포격 명중. 선체 피해 ${damage}.`;
+        message = `${enemy.name}의 포격 명중. 선체 피해 ${damage}.`;
       }
-      addCannonEffect("enemy");
+      addCannonEffect("enemy", false, false, enemy.id);
       playTone(72, 0.2, "square", 0.055);
     } else {
-      message = "적의 포탄이 뱃전을 아슬아슬하게 비껴갔다.";
-      addCannonEffect("enemy", false, true);
+      message = `${enemy.name}의 포탄이 뱃전을 아슬아슬하게 비껴갔다.`;
+      addCannonEffect("enemy", false, true, enemy.id);
     }
   }
 
+  Analytics.addDamage(0, playerHullBefore - run.hull);
+  applyDeathDelay();
+  return { enemyId: enemy.id, type: "attack", directAttack: true, message };
+}
+
+function performEnemyManeuverOrPrepare(enemy) {
+  if (enemyRange(enemy.id) === 3 && enemy.sails > 0 && !enemy.movementBlocked) {
+    setEnemyRange(enemy.id, enemyRange(enemy.id) - 1);
+    enemy.intent = "approach";
+    enemy.intentReady = false;
+    return {
+      enemyId: enemy.id,
+      type: "approach",
+      directAttack: false,
+      message: `${withJosa(enemy.name, "이", "가")} 돛을 당겨 거리를 좁혔다.`,
+    };
+  }
+
+  if (Math.random() < 0.5) {
+    enemy.intent = "attack";
+    enemy.intentReady = true;
+    return {
+      enemyId: enemy.id,
+      type: "prepare",
+      directAttack: false,
+      message: `${withJosa(enemy.name, "이", "가")} 다음 포격을 준비한다.`,
+    };
+  }
+
+  enemy.intent = "hold";
+  enemy.intentReady = false;
+  return {
+    enemyId: enemy.id,
+    type: "hold",
+    directAttack: false,
+    message: `${withJosa(enemy.name, "이", "가")} 거리를 유지하며 기회를 엿본다.`,
+  };
+}
+
+function startEnemyTurn() {
+  if (!run || run.mode !== "combat") return [];
+  const combat = run.combat;
+  const living = FleetCombat.livingEnemies(combat.enemies);
+  let attacksLeft = FleetCombat.attackBudget(run.mapId, living.length);
+  const actions = [];
+  let playerDefeated = false;
+
+  combat.locked = true;
+  for (const enemy of rotateFromCursor(living, combat.attackCursor)) {
+    const action = attacksLeft > 0 && canDirectAttack(enemy)
+      ? performEnemyAttack(enemy)
+      : performEnemyManeuverOrPrepare(enemy);
+    actions.push(action);
+    enemy.movementBlocked = false;
+    if (action.directAttack) attacksLeft -= 1;
+    playerDefeated = checkDefeat();
+    if (playerDefeated) break;
+  }
+  combat.attackCursor = (combat.attackCursor + 1) % Math.max(1, living.length);
+  if (playerDefeated) return actions;
+  combat.pendingEnemyTurn = { actions };
+  return finishEnemyTurn();
+}
+
+function finishEnemyTurn() {
+  if (!run || run.mode !== "combat" || !run.combat.pendingEnemyTurn) return [];
+  const combat = run.combat;
+  const { actions } = combat.pendingEnemyTurn;
+  delete combat.pendingEnemyTurn;
   combat.turn += 1;
+  combat.enemyActions += 1;
   combat.locked = false;
-  combat.message = message;
+  combat.message = actions.map((action) => action.message).join(" ");
   combat.evasion = 0;
+  applyDeathDelay();
   run.hull = Math.max(0, run.hull);
   run.sails = Math.max(0, run.sails);
   run.morale = Math.max(0, run.morale);
 
-  if (Math.random() < 0.28) {
+  const nextPlayerTurn = (combat.cardState?.turn || combat.turn) + 1;
+  if (combat.tailwindUntilTurn >= nextPlayerTurn) {
+    combat.wind = { direction: "순풍", speed: combat.wind.speed };
+  } else if (Math.random() < 0.28) {
     combat.wind = rollWind();
     combat.message += ` 바람이 ${combat.wind.direction} ${combat.wind.speed}단계로 바뀌었다.`;
   }
 
-  Analytics.addDamage(0, playerHullBefore - run.hull);
   combat.log = [combat.message, ...(combat.log || [])].slice(0, 3);
+  const defeated = checkDefeat();
+  if (!defeated && run.mode === "combat" && combat.cardState && !combat.victoryScheduled) {
+    const modifiers = getEnergyModifiers(nextPlayerTurn);
+    CardEngine.startPlayerTurn(combat.cardState, { energy: modifiers.turnEnergy }, Math.random);
+    Analytics.recordPlayerTurn();
+    combat.turn = combat.cardState.turn;
+    combat.smugglerPulleyUsed = false;
+    combat.boardingPowerBonus = 0;
+    if (combat.tailwindUntilTurn >= combat.cardState.turn) {
+      combat.wind = { direction: "순풍", speed: combat.wind.speed };
+    }
+  }
   updateHud();
   renderActionDock();
-  checkDefeat();
+  return actions;
 }
 
-function addCannonEffect(source, broadside = false, missed = false) {
+function enemyTurn() {
+  return startEnemyTurn();
+}
+
+function addCannonEffect(source, broadside = false, missed = false, enemyId = null, enemyAnchor = null) {
+  const anchors = combatEffectAnchors({ source, enemyId });
+  const resolvedEnemyAnchor = enemyAnchor || (source === "player" ? anchors.end : anchors.start);
   const count = broadside ? 6 : 3;
   for (let index = 0; index < count; index += 1) {
     visualEffects.push({
       type: "ball",
       source,
+      enemyId,
+      enemyAnchor: { ...resolvedEnemyAnchor },
       progress: -index * 0.05,
       speed: 0.035 + Math.random() * 0.012,
       offset: randomInt(-20, 20),
@@ -1527,11 +2487,20 @@ function addCannonEffect(source, broadside = false, missed = false) {
       hit: false,
     });
   }
-  visualEffects.push({ type: "flash", source, progress: 0, speed: 0.11 });
+  visualEffects.push({
+    type: "flash",
+    source,
+    enemyId,
+    enemyAnchor: { ...resolvedEnemyAnchor },
+    progress: 0,
+    speed: 0.11,
+  });
   for (let index = 0; index < (broadside ? 12 : 6); index += 1) {
     visualEffects.push({
       type: "smoke",
       source,
+      enemyId,
+      enemyAnchor: { ...resolvedEnemyAnchor },
       progress: 0,
       speed: 0.018 + Math.random() * 0.014,
       offset: randomInt(-16, 16),
@@ -1560,51 +2529,552 @@ function triggerShake(magnitude) {
   shakeMagnitude = Math.max(shakeMagnitude, magnitude);
 }
 
-function renderCombatActions() {
-  clearElement(ui.actionDock);
-  const combat = run.combat;
-  const enemy = combat.enemy;
-  const title = makeElement("div", "action-title");
-  const logWrap = makeElement("div", "combat-log");
-  (combat.log && combat.log.length ? combat.log : [combat.message]).forEach((line, index) => {
-    logWrap.append(makeElement(index === 0 ? "h2" : "p", index === 0 ? "" : "combat-log-line", line));
+const CARD_RARITY_LABELS = { normal: "일반", rare: "희귀", epic: "영웅" };
+
+function formatCombatNumber(value) {
+  return Number.isInteger(value) ? String(value) : String(Math.round(value * 10) / 10);
+}
+
+function formatCombatRange(minimum, maximum) {
+  const low = formatCombatNumber(minimum);
+  const high = formatCombatNumber(maximum);
+  return minimum === maximum ? low : `${low}~${high}`;
+}
+
+function combatHitChance(shotType, delta = 0) {
+  const enemies = FleetCombat.livingEnemies(run?.combat?.enemies || []);
+  const prepared = run?.combat?.nextShotAccuracyBonus || 0;
+  const chances = enemies.map((enemy) => Math.round(clamp(
+    playerHitChance(shotType, enemy) + delta + prepared,
+    0,
+    1,
+  ) * 100));
+  if (chances.length === 0) return "0%";
+  return `${formatCombatRange(Math.min(...chances), Math.max(...chances))}%`;
+}
+
+function combatCannonDamageRange(multiplier = 1, bonus = 0) {
+  const artifactBonus = hasArtifact("powder") ? 3 : 0;
+  const minimum = Math.max(1, Math.round((getCannonPower() + 2 + artifactBonus) * multiplier + bonus));
+  const maximum = Math.max(1, Math.round((getCannonPower() + 6 + artifactBonus) * multiplier + bonus));
+  return formatCombatRange(minimum, maximum);
+}
+
+function combatApproachChance() {
+  if (hasArtifact("ghostSail")) return 100;
+  return Math.round(clamp(0.68 + getRiggerChanceBonus() + run.sails / run.maxSails * 0.12, 0.3, 0.96) * 100);
+}
+
+function combatBoardChance(enemy, delta = 0) {
+  return Math.round(clamp(
+    0.42 + (getCrewPower() - enemy.crew) / 45 + (hasTrait("brave") ? 0.08 : 0) + delta,
+    delta < 0 ? 0.15 : 0.2,
+    delta < 0 ? 0.75 : 0.9,
+  ) * 100);
+}
+
+function combatBoardChanceText(delta = 0) {
+  const chances = FleetCombat.livingEnemies(run?.combat?.enemies || [])
+    .map((enemy) => combatBoardChance(enemy, delta));
+  if (chances.length === 0) return "0%";
+  return `${formatCombatRange(Math.min(...chances), Math.max(...chances))}%`;
+}
+
+function combatCardDescription(card) {
+  const gunnerBonus = getGunnerBonus();
+  const chainLockerBonus = hasArtifact("chainLocker") ? 4 : 0;
+  const chainMinimum = 6 + gunnerBonus + chainLockerBonus;
+  const chainMaximum = 10 + gunnerBonus + chainLockerBonus;
+  const approachChance = combatApproachChance();
+  const descriptions = {
+    fire: `명중 ${combatHitChance("fire")} · 선체 ${combatCannonDamageRange()} 피해 · 선원 1 피해 25%`,
+    aimed_fire: `명중 ${combatHitChance("fire", 0.15)} · 선체 ${combatCannonDamageRange(1, 6)} 피해`,
+    rapid_fire: `명중 ${combatHitChance("fire")} · 선체 ${combatCannonDamageRange(0.6)} 피해 · 카드 1장 드로우`,
+    chain: `명중 ${combatHitChance("chain")} · 돛 ${formatCombatRange(chainMinimum, chainMaximum)} 피해`,
+    heavy_chain: `명중 ${combatHitChance("chain")} · 돛 ${formatCombatRange(chainMinimum + 8, chainMaximum + 8)} 피해`,
+    entangling_chain: `명중 ${combatHitChance("chain")} · 돛 ${formatCombatRange(3 + gunnerBonus, 6 + gunnerBonus)} 피해 · 다음 이동 차단`,
+    approach: `성공 ${approachChance}% · 대상과 거리 -1 · 회피 8%`,
+    tailwind_charge: `순풍 전용 · 성공 ${approachChance}% · 거리 -1 · 카드 1장 드로우`,
+    ram: `성공 ${approachChance}% · 거리 -1 · 적 선체 8 · 자신의 선체 3 피해`,
+    retreat: FleetCombat.livingEnemies(run?.combat?.enemies || []).every((enemy) => enemyRange(enemy.id) >= 3)
+      ? `거리 유지 · 회피 28%${hasArtifact("anchor") ? " · 사기 2 회복" : ""}`
+      : `모든 적과 거리 +1 · 회피 20%${hasArtifact("anchor") ? " · 사기 2 회복" : ""}`,
+    repair: `수리도구 1개 · 선체 ${7 + getCarpenterRepairBonus()} · 돛 3 회복`,
+    overhaul: `수리도구 1개 · 선체 ${14 + getCarpenterRepairBonus()} · 돛 6 회복`,
+    board: `거리 1·적 돛 55% 이하 · 나포 ${combatBoardChanceText()}`,
+    desperate_board: `거리 1 · 적 돛 조건 무시 · 나포 ${combatBoardChanceText(-0.15)}`,
+    barrage_fire: `각 적 명중 ${combatHitChance("fire", -0.1)} · 선체 ${combatCannonDamageRange(0.6)} 피해`,
+    chain_rain: `각 적 명중 ${combatHitChance("chain", -0.1)} · 돛 ${5 + gunnerBonus} 피해`,
+    gunner_shrapnel: `명중 ${combatHitChance("fire")} · 선체 ${combatCannonDamageRange(0.6)} · 선원 2 피해`,
+    gunner_double_broadside: `각 명중 ${combatHitChance("fire")} · 선체 ${combatCannonDamageRange(0.7)} 피해 × 2회`,
+    gunner_overcharge: `명중 ${combatHitChance("fire")} · 선체 ${combatCannonDamageRange(1, 8)} · 적 돛 5 · 자신의 돛 3 피해`,
+    gunner_magazine_open: `명중 보장 · 선체 ${18 + getCannonPower()} 피해 · 자신의 선체 6 피해`,
+    gunner_fleet_broadside: `모든 적 선체 ${formatCombatNumber(10 + getCannonPower() * 0.5)} · 돛 3 · 자신의 선체 4 피해`,
+  };
+  return descriptions[card.id] || card.description;
+}
+
+function idleCardDragState() {
+  return {
+    instanceId: null,
+    pointerId: null,
+    originRect: null,
+    currentTarget: null,
+    executionToken: combatUiExecutionToken,
+    phase: "idle",
+  };
+}
+
+function prefersReducedCombatMotion() {
+  return Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+}
+
+function setCombatTargetPreview(currentTarget, targets) {
+  combatTargetPreview = { currentTarget: currentTarget || null, validTargets: [...targets] };
+  if (currentTarget) {
+    canvas.setAttribute("data-target-valid", `${currentTarget.type}:${currentTarget.id}`);
+  } else {
+    canvas.removeAttribute?.("data-target-valid");
+  }
+}
+
+function resetCardDrag(button = cardDragButton) {
+  if (button) {
+    button.removeAttribute?.("aria-grabbed");
+    button.classList.remove("is-dragging", "is-flying", "is-returning");
+    button.style.removeProperty?.("--drag-x");
+    button.style.removeProperty?.("--drag-y");
+    button.style.removeProperty?.("--flight-x");
+    button.style.removeProperty?.("--flight-y");
+  }
+  cardDragButton = null;
+  cardDragPointerStart = null;
+  cardDragState = idleCardDragState();
+  setCombatTargetPreview(null, []);
+}
+
+function cardDisabledReason(instance) {
+  if (!run?.combat || run.mode !== "combat") return "전투 중에만 사용할 수 있습니다.";
+  if (run.combat.locked || run.combat.victoryScheduled) return "적의 행동이 끝날 때까지 기다려야 합니다.";
+  const card = CardDefinitions.getCard(instance.cardId);
+  const candidates = cardTargetCandidates(card);
+  if (candidates.some((target) => cardUseError(instance.instanceId, target) === null)) return "";
+  return candidates.map((target) => cardUseError(instance.instanceId, target)).find(Boolean)
+    || "사용할 수 있는 대상이 없습니다.";
+}
+
+function currentKeyboardTargets() {
+  if (keyboardSkillSelection.active) {
+    return FleetCombat.livingEnemies(run?.combat?.enemies || [])
+      .map((enemy) => ({ type: "enemy", id: enemy.id }))
+      .filter((target) => captainSkillError(target) === null);
+  }
+  if (!keyboardCardSelection.instanceId) return [];
+  return validTargets(keyboardCardSelection.instanceId);
+}
+
+function currentKeyboardTarget() {
+  const targets = currentKeyboardTargets();
+  if (targets.length === 0) return null;
+  const selectedIndex = keyboardSkillSelection.active
+    ? keyboardSkillSelection.targetIndex
+    : keyboardCardSelection.targetIndex;
+  const index = ((selectedIndex % targets.length) + targets.length) % targets.length;
+  return targets[index];
+}
+
+function currentTargetIndex() {
+  return keyboardSkillSelection.active
+    ? keyboardSkillSelection.targetIndex
+    : keyboardCardSelection.targetIndex;
+}
+
+function setCurrentTargetIndex(index) {
+  if (keyboardSkillSelection.active) keyboardSkillSelection.targetIndex = index;
+  else keyboardCardSelection.targetIndex = index;
+}
+
+function targetLabel(target) {
+  if (target.type === "enemy") return findEnemy(target.id)?.name || target.id;
+  if (target.type === "self") return "아군 함선";
+  if (target.type === "sea" && target.range !== undefined) return `해역 · 거리 ${target.range}`;
+  if (target.type === "sea") return "해역";
+  if (target.type === "allEnemies") return "적 함대 전체";
+  return target.id;
+}
+
+function updateKeyboardTargetUi({ focus = false } = {}) {
+  const targets = currentKeyboardTargets();
+  const current = currentKeyboardTarget();
+  setCombatTargetPreview(current, targets);
+  const buttons = [...ui.actionDock.querySelectorAll(".combat-target-button")];
+  buttons.forEach((button, index) => {
+    const selected = index === currentTargetIndex();
+    button.classList.toggle("is-selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+    if (selected && focus) button.focus();
   });
-  title.append(
-    logWrap,
-    makeElement("p", "", `${combat.wind.direction} ${combat.wind.speed} · 거리 ${combat.range} · 수리도구 ${run.repairKits}`),
-  );
+}
 
-  const buttons = makeElement("div", "action-buttons");
-  const commands = [
-    { id: "fire", label: "선체 포격", copy: `명중 ${Math.round(playerHitChance("fire") * 100)}%` },
-    { id: "chain", label: "사슬탄", copy: `돛 공격 · 명중 ${Math.round(playerHitChance("chain") * 100)}%` },
-    { id: "approach", label: "접근 기동", copy: "접안 거리를 만든다", disabled: combat.range <= 1 || run.sails <= 0 },
-    { id: "retreat", label: "회피 기동", copy: "거리를 벌리고 회피", disabled: run.sails <= 0 },
-    { id: "repair", label: "응급수리", copy: `도구 ${run.repairKits}개`, disabled: run.repairKits <= 0 || run.hull >= run.maxHull },
-    { id: "board", label: "접안 공격", copy: `승률 ${Math.round(clamp(0.42 + (getCrewPower() - enemy.crew) / 45 + (hasTrait("brave") ? 0.08 : 0), 0.2, 0.9) * 100)}%`, disabled: combat.range !== 1 || enemy.sails > enemy.maxSails * 0.55 },
-    { id: "skill", label: captain().skill, copy: "선장 고유 기술", disabled: !combat.skillReady, skill: true },
-  ];
+function selectCardByIndex(index) {
+  if (!run || run.mode !== "combat" || cardDragState.phase !== "idle") return false;
+  const instance = run.combat.cardState?.hand[index];
+  if (!instance || cardDisabledReason(instance)) return false;
+  keyboardSkillSelection = { active: false, targetIndex: 0 };
+  keyboardCardSelection = { instanceId: instance.instanceId, targetIndex: 0 };
+  renderCombatHand();
+  updateKeyboardTargetUi({ focus: true });
+  return true;
+}
 
-  commands.forEach((command) => {
-    const button = makeElement("button", `command-button${command.skill ? " skill" : ""}`);
+function selectCaptainSkill() {
+  if (!run || run.mode !== "combat" || cardDragState.phase !== "idle" || captainSkillError()) return false;
+  keyboardCardSelection = { instanceId: null, targetIndex: 0 };
+  keyboardSkillSelection = { active: true, targetIndex: 0 };
+  renderCombatHand();
+  updateKeyboardTargetUi({ focus: true });
+  return true;
+}
+
+function selectCardByInstance(instanceId) {
+  const index = run?.combat?.cardState?.hand.findIndex((instance) => instance.instanceId === instanceId) ?? -1;
+  return selectCardByIndex(index);
+}
+
+function moveTargetFocus(direction) {
+  const targets = currentKeyboardTargets();
+  if (targets.length === 0) return false;
+  const delta = typeof direction === "number"
+    ? direction
+    : ["left", "up", "previous"].includes(direction) ? -1 : 1;
+  setCurrentTargetIndex((currentTargetIndex() + delta + targets.length) % targets.length);
+  updateKeyboardTargetUi({ focus: true });
+  return true;
+}
+
+function clientPointForDropTarget(target) {
+  const geometry = combatDropTargets().find((candidate) => (
+    candidate.type === target.type
+    && candidate.id === target.id
+    && (target.range === undefined || candidate.range === target.range)
+  ));
+  if (!geometry) return null;
+  const bounds = canvas.getBoundingClientRect();
+  const x = (geometry.rect.left + geometry.rect.right) / 2;
+  const y = (geometry.rect.top + geometry.rect.bottom) / 2;
+  return {
+    x: bounds.left + x * ((bounds.width || canvas.width) / canvas.width),
+    y: bounds.top + y * ((bounds.height || canvas.height) / canvas.height),
+  };
+}
+
+function finishCardExecution(token) {
+  if (cardDragState.phase !== "flying" || cardDragState.executionToken !== token) return false;
+  const { instanceId, currentTarget } = cardDragState;
+  keyboardCardSelection = { instanceId: null, targetIndex: 0 };
+  keyboardSkillSelection = { active: false, targetIndex: 0 };
+  resetCardDrag();
+  return playCard(instanceId, currentTarget);
+}
+
+function waitForCardFlight(button, token) {
+  const finish = () => finishCardExecution(token);
+  button.addEventListener("animationend", (event) => {
+    if (!event.animationName || event.animationName === "combat-card-flight") finish();
+  });
+  if (prefersReducedCombatMotion()) {
+    button.classList.add("is-motion-reduced");
+    setTimeout(finish, 0);
+    return;
+  }
+  setTimeout(finish, 300);
+}
+
+function beginCardFlight(instanceId, target, button) {
+  if (!button || !target || cardDragState.phase === "flying" || run?.combat?.locked) return false;
+  const instance = findHandInstance(instanceId);
+  if (!instance || cardUseError(instanceId, target)) return false;
+  const token = ++combatUiExecutionToken;
+  const originRect = cardDragState.originRect || button.getBoundingClientRect();
+  const destination = clientPointForDropTarget(target);
+  cardDragButton = button;
+  cardDragState = {
+    instanceId,
+    pointerId: cardDragState.pointerId,
+    originRect,
+    currentTarget: target,
+    executionToken: token,
+    phase: "flying",
+  };
+  button.removeAttribute?.("aria-grabbed");
+  button.classList.remove("is-dragging", "is-returning");
+  button.classList.add("is-flying");
+  if (destination) {
+    button.style.setProperty("--flight-x", `${destination.x - (originRect.left + originRect.width / 2)}px`);
+    button.style.setProperty("--flight-y", `${destination.y - (originRect.top + originRect.height / 2)}px`);
+  }
+  setCombatTargetPreview(target, validTargets(instanceId));
+  waitForCardFlight(button, token);
+  return true;
+}
+
+function returnDraggedCard(reason) {
+  if (!["dragging", "flying"].includes(cardDragState.phase)) return false;
+  const button = cardDragButton;
+  const token = ++combatUiExecutionToken;
+  cardDragState = { ...cardDragState, currentTarget: null, executionToken: token, phase: "returning" };
+  button?.removeAttribute?.("aria-grabbed");
+  button?.classList.remove("is-dragging", "is-flying");
+  button?.classList.add("is-returning");
+  if (button) button.setAttribute("data-cancel-reason", reason);
+  setCombatTargetPreview(null, []);
+  const finish = () => {
+    if (cardDragState.phase !== "returning" || cardDragState.executionToken !== token) return;
+    resetCardDrag(button);
+  };
+  button?.addEventListener("animationend", (event) => {
+    if (!event.animationName || event.animationName === "combat-card-return") finish();
+  });
+  setTimeout(finish, prefersReducedCombatMotion() ? 0 : 300);
+  return true;
+}
+
+function eligibleDropTargets(instanceId) {
+  const targets = validTargets(instanceId);
+  const geometry = combatDropTargets().filter((candidate) => (
+    targets.some((target) => (
+      target.type === candidate.type
+      && target.id === candidate.id
+      && (target.range === undefined || candidate.range === target.range)
+    ))
+  ));
+  return geometry.map((candidate) => ({
+    ...candidate,
+    target: targets.find((target) => (
+      target.type === candidate.type
+      && target.id === candidate.id
+      && (target.range === undefined || candidate.range === target.range)
+    )),
+  }));
+}
+
+function beginCardDrag(event, instanceId) {
+  if (event.button !== undefined && event.button !== 0) return false;
+  if (!run || run.mode !== "combat" || run.combat.locked || cardDragState.phase !== "idle") return false;
+  const instance = findHandInstance(instanceId);
+  if (!instance || cardDisabledReason(instance)) return false;
+  const button = event.currentTarget;
+  event.preventDefault?.();
+  button.setPointerCapture?.(event.pointerId);
+  cardDragButton = button;
+  cardDragPointerStart = { x: event.clientX, y: event.clientY };
+  cardDragState = {
+    instanceId,
+    pointerId: event.pointerId,
+    originRect: button.getBoundingClientRect(),
+    currentTarget: null,
+    executionToken: ++combatUiExecutionToken,
+    phase: "dragging",
+  };
+  button.classList.add("is-dragging");
+  button.setAttribute("aria-grabbed", "true");
+  setCombatTargetPreview(null, validTargets(instanceId));
+  return true;
+}
+
+function updateCardDrag(event) {
+  if (cardDragState.phase !== "dragging" || event.pointerId !== cardDragState.pointerId) return false;
+  if (!run?.combat || run.combat.locked || run.combat.victoryScheduled) return returnDraggedCard("combat-lock");
+  event.preventDefault?.();
+  const dx = event.clientX - cardDragPointerStart.x;
+  const dy = event.clientY - cardDragPointerStart.y;
+  cardDragButton?.style.setProperty("--drag-x", `${dx}px`);
+  cardDragButton?.style.setProperty("--drag-y", `${dy}px`);
+  const eligible = eligibleDropTargets(cardDragState.instanceId);
+  const geometry = combatDropTargetAtClientPoint(event.clientX, event.clientY, eligible);
+  const target = geometry?.target || null;
+  cardDragState.currentTarget = target;
+  cardDragButton?.classList.toggle("has-valid-target", Boolean(target));
+  setCombatTargetPreview(target, validTargets(cardDragState.instanceId));
+  return true;
+}
+
+function finishCardDrag(event) {
+  if (cardDragState.phase !== "dragging" || event.pointerId !== cardDragState.pointerId) return false;
+  event.preventDefault?.();
+  if (cardDragButton?.hasPointerCapture?.(event.pointerId)) cardDragButton.releasePointerCapture(event.pointerId);
+  if (!run?.combat || run.combat.locked || run.combat.victoryScheduled) return returnDraggedCard("combat-lock");
+  const eligible = eligibleDropTargets(cardDragState.instanceId);
+  const geometry = combatDropTargetAtClientPoint(event.clientX, event.clientY, eligible);
+  const target = geometry?.target || null;
+  cardDragState.currentTarget = target;
+  if (target) return beginCardFlight(cardDragState.instanceId, target, cardDragButton);
+  const origin = cardDragState.originRect;
+  const releasedAtOrigin = origin
+    && event.clientX >= origin.left && event.clientX <= origin.right
+    && event.clientY >= origin.top && event.clientY <= origin.bottom;
+  if (releasedAtOrigin) {
+    resetCardDrag(cardDragButton);
+    return true;
+  }
+  return returnDraggedCard("invalid-drop");
+}
+
+function cancelCardDrag(reason = "cancelled") {
+  if (["dragging", "flying"].includes(cardDragState.phase)) return returnDraggedCard(reason);
+  if (keyboardCardSelection.instanceId || keyboardSkillSelection.active) {
+    keyboardCardSelection = { instanceId: null, targetIndex: 0 };
+    keyboardSkillSelection = { active: false, targetIndex: 0 };
+    setCombatTargetPreview(null, []);
+    renderCombatHand();
+    return true;
+  }
+  return false;
+}
+
+function confirmKeyboardCard() {
+  const target = currentKeyboardTarget();
+  if (keyboardSkillSelection.active) {
+    if (!target || cardDragState.phase !== "idle") return false;
+    keyboardSkillSelection = { active: false, targetIndex: 0 };
+    setCombatTargetPreview(null, []);
+    return useCaptainSkill(target);
+  }
+  const instanceId = keyboardCardSelection.instanceId;
+  if (!target || !instanceId || cardDragState.phase !== "idle") return false;
+  const button = ui.actionDock.querySelector(`[data-instance-id="${instanceId}"]`);
+  return beginCardFlight(instanceId, target, button);
+}
+
+function renderCombatTargetChoices(container) {
+  const targets = currentKeyboardTargets();
+  if (targets.length === 0) return;
+  const choices = makeElement("div", "combat-target-choices");
+  choices.setAttribute("role", "group");
+  choices.setAttribute("aria-label", keyboardSkillSelection.active ? "선장 기술 대상 선택" : "카드 대상 선택");
+  choices.append(makeElement("span", "combat-target-prompt", keyboardSkillSelection.active ? "기술 대상을 선택하세요" : "대상을 선택하세요"));
+  targets.forEach((target, index) => {
+    const button = makeElement("button", `combat-target-button${index === currentTargetIndex() ? " is-selected" : ""}`, targetLabel(target));
     button.type = "button";
-    button.disabled = Boolean(command.disabled || combat.locked);
-    button.append(makeElement("strong", "", command.label), makeElement("span", "", command.copy));
-    button.addEventListener("click", () => combatAction(command.id));
-    buttons.append(button);
+    button.setAttribute("data-target-valid", "true");
+    button.setAttribute("aria-pressed", String(index === currentTargetIndex()));
+    button.addEventListener("click", () => {
+      setCurrentTargetIndex(index);
+      updateKeyboardTargetUi();
+      confirmKeyboardCard();
+    });
+    choices.append(button);
   });
-  ui.actionDock.append(title, buttons);
+  container.append(choices);
+}
+
+function renderCombatHand() {
+  clearElement(ui.actionDock);
+  if (!run || run.mode !== "combat" || !run.combat?.cardState) return;
+  const combat = run.combat;
+  const state = combat.cardState;
+  const selectedStillExists = state.hand.some((instance) => instance.instanceId === keyboardCardSelection.instanceId);
+  if (!selectedStillExists) keyboardCardSelection = { instanceId: null, targetIndex: 0 };
+  if (keyboardSkillSelection.active && captainSkillError()) {
+    keyboardSkillSelection = { active: false, targetIndex: 0 };
+  }
+  ui.actionDock.classList.toggle("is-reduced-motion", prefersReducedCombatMotion());
+
+  const top = makeElement("div", "combat-hand-top");
+  const log = makeElement("div", "combat-log");
+  (combat.log?.length ? combat.log : [combat.message]).slice(0, 2).forEach((line, index) => {
+    log.append(makeElement(index === 0 ? "h2" : "p", index === 0 ? "" : "combat-log-line", line));
+  });
+  const resources = makeElement("div", "combat-resources");
+  const energy = makeElement("strong", "combat-energy", `에너지 ${state.energy}/${state.maxEnergy}`);
+  energy.setAttribute("aria-label", `현재 에너지 ${state.energy}, 최대 ${state.maxEnergy}`);
+  resources.append(energy);
+  [
+    ["뽑기", state.drawPile.length, "draw"],
+    ["버림", state.discardPile.length, "discard"],
+    ["소멸", state.exhaustPile.length, "exhaust"],
+  ].forEach(([label, count, pile]) => {
+    const button = makeElement("button", "pile-button", `${label} ${count}`);
+    button.type = "button";
+    button.setAttribute("data-pile", pile);
+    button.setAttribute("aria-label", `${label} 더미 ${count}장`);
+    resources.append(button);
+  });
+  top.append(log, resources);
+
+  const hand = makeElement("div", "combat-hand");
+  hand.setAttribute("role", "group");
+  hand.setAttribute("aria-label", "전투 손패");
+  state.hand.forEach((instance, index) => {
+    const card = CardDefinitions.getCard(instance.cardId);
+    if (!card) return;
+    const reason = cardDisabledReason(instance);
+    const selected = instance.instanceId === keyboardCardSelection.instanceId;
+    const button = makeElement("button", `combat-card rarity-${card.rarity}${selected ? " is-selected" : ""}`);
+    button.type = "button";
+    button.disabled = Boolean(reason);
+    button.setAttribute("data-instance-id", instance.instanceId);
+    button.setAttribute("aria-keyshortcuts", String(index + 1));
+    button.setAttribute("aria-pressed", String(selected));
+    button.append(
+      makeElement("span", "combat-card-cost", String(effectiveCardCost(instance))),
+      makeElement("strong", "combat-card-name", card.name),
+      makeElement("span", "combat-card-family", card.family),
+      makeElement("span", "combat-card-description", combatCardDescription(card)),
+      makeElement("span", "combat-card-rarity", CARD_RARITY_LABELS[card.rarity] || card.rarity),
+    );
+    if (card.exhaust) button.append(makeElement("span", "combat-card-exhaust", "소멸"));
+    if (reason) button.append(makeElement("span", "combat-disabled-reason", reason));
+    button.addEventListener("pointerdown", (event) => beginCardDrag(event, instance.instanceId));
+    button.addEventListener("pointermove", updateCardDrag);
+    button.addEventListener("pointerup", finishCardDrag);
+    button.addEventListener("pointercancel", () => cancelCardDrag("pointercancel"));
+    button.addEventListener("click", () => {
+      if (cardDragState.phase === "idle") selectCardByInstance(instance.instanceId);
+    });
+    hand.append(button);
+  });
+
+  const footer = makeElement("div", "combat-hand-footer");
+  renderCombatTargetChoices(footer);
+  const actionButtons = makeElement("div", "combat-turn-actions");
+  const skillReason = captainSkillError();
+  const skill = makeElement("button", "captain-skill-button", `${captain().skill} (Q)`);
+  skill.type = "button";
+  skill.disabled = Boolean(skillReason);
+  skill.setAttribute("aria-pressed", String(keyboardSkillSelection.active));
+  if (skillReason) skill.append(makeElement("span", "combat-disabled-reason", skillReason));
+  skill.addEventListener("click", () => {
+    if (cardDragState.phase === "idle") selectCaptainSkill();
+  });
+  const endTurn = makeElement("button", "end-turn-button", "턴 종료 (E)");
+  endTurn.type = "button";
+  endTurn.disabled = Boolean(combat.locked || combat.victoryScheduled);
+  endTurn.addEventListener("click", () => {
+    if (cardDragState.phase === "idle") endPlayerTurn();
+  });
+  actionButtons.append(skill, endTurn);
+  footer.append(actionButtons);
+  ui.actionDock.append(top, hand, footer);
+  if (keyboardCardSelection.instanceId || keyboardSkillSelection.active) updateKeyboardTargetUi();
+}
+
+function renderCombatActions() {
+  renderCombatHand();
 }
 
 function winCombat() {
   if (!run || run.mode !== "combat") return;
   const combat = run.combat;
-  const enemy = combat.enemy;
+  const enemy = combat.enemies[0];
+  const encounterName = combat.enemies.length > 1 ? "적 함대" : enemy.name;
+  const captured = combat.capturedCount > 0;
   run.mode = "reward";
-  Analytics.recordCombatEnd(true, combat.captured);
+  recordCombatAnalytics(true);
+  const routeMultiplier = run.rewardMultiplier || 1;
   const ransomMultiplier = hasArtifact("kingsRansom") ? 1.5 : 1;
-  let gold = adjustedGold(Math.round((enemy.rewardGold + (combat.captured ? 8 : 0)) * ransomMultiplier));
-  let infamy = Math.round((enemy.rewardInfamy + (combat.captured ? 5 : 0)) * ransomMultiplier);
+  let gold = adjustedGold(Math.round((combat.rewardGold + combat.capturedCount * 8) * routeMultiplier * ransomMultiplier));
+  let infamy = Math.round((combat.rewardInfamy + combat.capturedCount * 5) * routeMultiplier * ransomMultiplier);
   run.gold += gold;
   run.infamy += infamy;
   run.morale = clamp(
@@ -1612,11 +3082,11 @@ function winCombat() {
     0,
     100,
   );
-  logEvent(`${enemy.name} 격파. 금화 +${gold}, 악명 +${infamy}.`);
+  logEvent(`${encounterName} 격파. 금화 +${gold}, 악명 +${infamy}.`);
   clearElement(ui.actionDock);
   playTone(540, 0.16, "triangle", 0.05);
 
-  setModalBase(combat.captured ? "VESSEL CAPTURED" : "BATTLE WON", combat.captured ? "나포 성공" : "승리", `${enemy.name}의 깃발이 내려갔습니다. 살아남은 선원들이 화물칸과 선장실을 수색합니다.`);
+  setModalBase(captured ? "VESSEL CAPTURED" : "BATTLE WON", captured ? "나포 성공" : "승리", `${encounterName}의 깃발이 내려갔습니다. 살아남은 선원들이 화물칸과 선장실을 수색합니다.`);
   const stats = makeElement("div", "result-stats");
   [["금화", `+${gold}`], ["악명", `+${infamy}`], ["남은 선체", `${run.hull}/${run.maxHull}`]].forEach(([label, value]) => {
     const cell = makeElement("div");
@@ -1627,17 +3097,91 @@ function winCombat() {
 
   addModalActions([
     {
-      label: enemy.kind === "battle" ? "항로 복귀" : "전리품 확인",
+      label: "카드 보상",
       primary: true,
       onClick: () => {
-        if (enemy.kind === "battle") returnToMap();
-        else showArtifactChoice(enemy.kind === "boss" ? "지배자의 유산" : "정예함의 유물", () => {
-          if (enemy.kind === "boss") completeAct();
-          else returnToMap();
+        showCardReward(() => {
+          if (enemy.kind === "battle") returnToMap();
+          else showArtifactChoice(enemy.kind === "boss" ? "지배자의 유산" : "정예함의 유물", () => {
+            if (enemy.kind === "boss") completeAct();
+            else returnToMap();
+          });
         });
       },
     },
   ]);
+}
+
+function drawCardChoices(captainId, count = 3, randomFn = Math.random) {
+  const pool = [...CardDefinitions.getRewardPool(captainId)];
+  const choices = [];
+  while (pool.length > 0 && choices.length < count) {
+    const availableRarities = Object.keys(CardDefinitions.CARD_RARITY_WEIGHTS)
+      .filter((rarity) => pool.some((card) => card.rarity === rarity));
+    const totalWeight = availableRarities.reduce(
+      (sum, rarity) => sum + CardDefinitions.CARD_RARITY_WEIGHTS[rarity],
+      0,
+    );
+    let rarityRoll = randomFn() * totalWeight;
+    let selectedRarity = availableRarities[availableRarities.length - 1];
+    for (const rarity of availableRarities) {
+      rarityRoll -= CardDefinitions.CARD_RARITY_WEIGHTS[rarity];
+      if (rarityRoll < 0) {
+        selectedRarity = rarity;
+        break;
+      }
+    }
+    const rarityCandidates = pool.filter((card) => card.rarity === selectedRarity);
+    const cardIndex = Math.min(rarityCandidates.length - 1, Math.floor(randomFn() * rarityCandidates.length));
+    const selected = rarityCandidates[Math.max(0, cardIndex)];
+    choices.push(selected);
+    pool.splice(pool.findIndex((card) => card.id === selected.id), 1);
+  }
+  return choices;
+}
+
+function acquireCard(cardId) {
+  if (!run) return false;
+  const card = CardDefinitions.getCard(cardId);
+  if (!card || (card.captainId && card.captainId !== run.captainId)) return false;
+  run.deck.push(cardId);
+  run.cardsAcquired ||= [];
+  run.cardsAcquired.push(cardId);
+  recordCardProgression("acquired", cardId);
+  logEvent(`[${RARITIES[card.rarity]?.name || "노말"}] ${card.name} 획득.`);
+  playTone(760, 0.15, "triangle", 0.045);
+  updateHud();
+  return true;
+}
+
+function showCardReward(afterChoice) {
+  run.mode = "reward";
+  const choices = drawCardChoices(run.captainId, 3, Math.random);
+  if (choices.length === 0) return afterChoice();
+  let resolved = false;
+  const finish = (cardId) => {
+    if (resolved) return;
+    resolved = true;
+    if (cardId) acquireCard(cardId);
+    afterChoice();
+  };
+
+  setModalBase("CHOOSE A CARD", "카드 보상", "카드 한 장을 덱에 추가하거나 보상을 건너뜁니다.", false);
+  const grid = makeElement("div", "choice-grid");
+  choices.forEach((card) => {
+    const button = makeElement("button", `modal-choice rarity-${card.rarity}`);
+    button.type = "button";
+    const head = makeElement("div", "choice-head");
+    head.append(
+      makeElement("h3", "", card.name),
+      makeElement("span", "choice-cost rarity-badge", `${RARITIES[card.rarity]?.name || "노말"} · 에너지 ${card.cost}`),
+    );
+    button.append(head, makeElement("p", "", `${card.family} · ${card.description}`));
+    button.addEventListener("click", () => finish(card.id));
+    grid.append(button);
+  });
+  ui.modalPanel.append(grid);
+  addModalActions([{ label: "건너뛰기", onClick: () => finish(null) }]);
 }
 
 function showArtifactChoice(title, afterChoice) {
@@ -1991,6 +3535,13 @@ function showPort() {
         showPort();
       },
     },
+    {
+      title: "카드 정리",
+      cost: `금화 ${cardRemovalPrice()}`,
+      copy: run.deck.length <= 5 ? "덱은 최소 5장을 유지해야 합니다." : "덱에서 카드 한 장을 제거합니다.",
+      disabled: !canRemoveCard(),
+      action: showCardRemoval,
+    },
   ];
   options.forEach((option) => grid.append(makeChoiceButton(option)));
   ui.modalPanel.append(grid);
@@ -2036,13 +3587,16 @@ function checkDefeat() {
       playTone(220, 0.2, "sine", 0.05);
       Analytics.recordSafetyNet();
       updateHud();
-      return false;
     }
-    run.deathCause = "hull";
-    finishRun("선체가 부서져 배와 보물이 바다 아래로 가라앉았습니다.", false);
-    return true;
+    if (run.hull <= 0) {
+      run.hull = 0;
+      run.deathCause = "hull";
+      finishRun("선체가 부서져 배와 보물이 바다 아래로 가라앉았습니다.", false);
+      return true;
+    }
   }
   if (run.morale <= 0) {
+    run.morale = 0;
     run.deathCause = "morale";
     finishRun("사기가 바닥나 선상 반란이 일어났습니다. 선장의 깃발이 끌어내려졌습니다.", false);
     return true;
@@ -2050,8 +3604,18 @@ function checkDefeat() {
   return false;
 }
 
+function recordCombatAnalytics(won) {
+  const combat = run?.combat;
+  if (!combat || combat.analyticsRecorded) return;
+  combat.analyticsRecorded = true;
+  const defeatedCount = combat.enemies.filter((enemy) => enemy.defeated).length;
+  Analytics.recordCombatEnd(won, combat.capturedCount);
+  Analytics.recordFleet(combat.enemies.length, defeatedCount, combat.capturedCount);
+}
+
 function finishRun(reason, victory) {
   if (!run || run.banked) return;
+  recordCombatAnalytics(victory);
   run.banked = true;
   run.mode = victory ? "victory" : "gameover";
   const previouslyUnlockedCaptains = new Set(CAPTAINS.filter(isCaptainUnlocked).map((item) => item.id));
@@ -2081,6 +3645,7 @@ function finishRun(reason, victory) {
     crew: run.crew.length,
     artifacts: run.artifacts.length,
     travelCount: run.travelCount,
+    finalDeck: run.deck,
   });
   updateHud();
   clearElement(ui.actionDock);
@@ -2131,6 +3696,7 @@ function confirmAbandonVoyage() {
       label: "항해 포기",
       primary: true,
       onClick: () => {
+        recordCombatAnalytics(false);
         Analytics.endRun({
           victory: false,
           deathCause: "abandoned",
@@ -2143,6 +3709,7 @@ function confirmAbandonVoyage() {
           crew: run.crew.length,
           artifacts: run.artifacts.length,
           travelCount: run.travelCount,
+          finalDeck: run.deck,
         });
         showHarbor();
       },
@@ -2463,6 +4030,145 @@ function enemyShipImagePath(enemy) {
   return paths[0];
 }
 
+function renderableEnemies() {
+  if (!run?.combat) return [];
+  return FleetCombat.livingEnemies(run.combat.enemies)
+    .filter((enemy) => enemy.hull > 0 && enemy.crew > 0);
+}
+
+function enemyRenderLayout() {
+  const enemies = renderableEnemies();
+  const slots = FleetCombat.layoutSlots(enemies.length);
+  return enemies.map((enemy, index) => {
+    const slot = slots[index];
+    const scale = enemies.length === 1 && enemy.kind === "boss" ? 1.7 : slot.scale;
+    const horizontalPadding = 14;
+    const verticalPadding = 12;
+    return {
+      enemyId: enemy.id,
+      x: slot.x,
+      y: slot.y,
+      scale,
+      hitBox: {
+        left: slot.x - 112 * scale - horizontalPadding,
+        top: slot.y - 170 * scale - verticalPadding,
+        right: slot.x + 112 * scale + horizontalPadding,
+        bottom: slot.y + 60 * scale + verticalPadding,
+      },
+    };
+  });
+}
+
+function combatDropTargets() {
+  const enemyTargets = enemyRenderLayout().map(({ enemyId, hitBox }) => ({
+    type: "enemy",
+    id: enemyId,
+    rect: { ...hitBox },
+  }));
+  const targets = [
+    ...enemyTargets,
+    { type: "self", id: "self", rect: { left: 72, top: 286, right: 372, bottom: 590 } },
+    { type: "sea", id: "sea", range: 1, rect: { left: 390, top: 150, right: 680, bottom: 360 } },
+    { type: "sea", id: "sea", range: 3, rect: { left: 390, top: 380, right: 680, bottom: 590 } },
+  ];
+  if (enemyTargets.length > 0) {
+    targets.push({
+      type: "allEnemies",
+      id: "allEnemies",
+      rect: {
+        left: Math.min(...enemyTargets.map((target) => target.rect.left)),
+        top: Math.min(...enemyTargets.map((target) => target.rect.top)),
+        right: Math.max(...enemyTargets.map((target) => target.rect.right)),
+        bottom: Math.max(...enemyTargets.map((target) => target.rect.bottom)),
+      },
+    });
+  }
+  return targets;
+}
+
+function canvasPointFromClient(clientX, clientY) {
+  const bounds = canvas.getBoundingClientRect();
+  const cssWidth = bounds.width || canvas.width;
+  const cssHeight = bounds.height || canvas.height;
+  return {
+    x: (clientX - bounds.left) * (canvas.width / cssWidth),
+    y: (clientY - bounds.top) * (canvas.height / cssHeight),
+  };
+}
+
+function combatDropTargetAtClientPoint(clientX, clientY, targets = combatDropTargets()) {
+  const point = canvasPointFromClient(clientX, clientY);
+  return targets.find(({ rect }) => (
+    point.x >= rect.left
+    && point.x <= rect.right
+    && point.y >= rect.top
+    && point.y <= rect.bottom
+  )) || null;
+}
+
+function enemyIntentLabel(intent) {
+  return { attack: "포격", approach: "접근", hold: "대기" }[intent] || "대기";
+}
+
+function enemyIntentIcon(intent) {
+  return { attack: "✦", approach: "➤", hold: "◼" }[intent] || "◼";
+}
+
+function combatEffectAnchors(effect, layout = enemyRenderLayout()) {
+  const playerAnchor = { x: 322, y: 453 };
+  const focusedId = run?.combat?.focusedEnemyId;
+  const targetLayout = layout.find((item) => item.enemyId === effect.enemyId)
+    || layout.find((item) => item.enemyId === focusedId)
+    || layout[0];
+  const enemyAnchor = effect.enemyAnchor
+    ? { ...effect.enemyAnchor }
+    : targetLayout
+      ? { x: targetLayout.x - 67 * targetLayout.scale, y: targetLayout.y }
+      : { ...playerAnchor };
+  return effect.source === "player"
+    ? { start: playerAnchor, end: enemyAnchor }
+    : { start: enemyAnchor, end: playerAnchor };
+}
+
+function drawEnemyCombatHud(layout, enemy, state) {
+  const { hitBox } = layout;
+  const hudWidth = Math.min(220, hitBox.right - hitBox.left);
+  const hudHeight = 52;
+  const hudX = (hitBox.left + hitBox.right - hudWidth) / 2;
+  const hudY = hitBox.top;
+
+  if (state.validDrop || state.focused) {
+    ctx.save();
+    ctx.strokeStyle = state.hovered
+      ? "rgba(111, 232, 183, 0.98)"
+      : state.validDrop
+        ? "rgba(111, 232, 183, 0.68)"
+        : "rgba(224, 174, 75, 0.78)";
+    ctx.lineWidth = state.hovered ? 4 : 2;
+    ctx.setLineDash(state.validDrop && !state.hovered ? [7, 5] : []);
+    ctx.strokeRect(hitBox.left, hitBox.top, hitBox.right - hitBox.left, hitBox.bottom - hitBox.top);
+    ctx.restore();
+  }
+
+  ctx.fillStyle = "rgba(7, 22, 29, 0.88)";
+  ctx.fillRect(hudX, hudY, hudWidth, hudHeight);
+  ctx.fillStyle = "#f3e4c7";
+  ctx.font = "700 12px Georgia, serif";
+  ctx.fillText(enemy.name, hudX + 9, hudY + 16);
+  ctx.fillStyle = "#08181e";
+  ctx.fillRect(hudX + 9, hudY + 23, hudWidth - 18, 6);
+  ctx.fillStyle = "#c7564d";
+  ctx.fillRect(hudX + 9, hudY + 23, (hudWidth - 18) * clamp(enemy.hull / enemy.maxHull, 0, 1), 6);
+  ctx.fillStyle = "#c7d3ce";
+  ctx.font = "10px system-ui, sans-serif";
+  ctx.fillText(`거리 ${state.range}/3`, hudX + 9, hudY + 43);
+  ctx.textAlign = "center";
+  ctx.fillText(`돛 ${Math.max(0, enemy.sails)}/${enemy.maxSails}`, hudX + hudWidth / 2, hudY + 43);
+  ctx.textAlign = "right";
+  ctx.fillText(`${state.intentIcon} ${state.intentLabel}`, hudX + hudWidth - 9, hudY + 43);
+  ctx.textAlign = "left";
+}
+
 function drawShip(x, y, scale, flip, color, imagePath = null) {
   const image = getShipImage(imagePath);
   ctx.save();
@@ -2532,57 +4238,86 @@ function drawCombat(time) {
     return;
   }
   const combat = run.combat;
-  const enemy = combat.enemy;
-  const rangePositions = { 1: 735, 2: 900, 3: 1060 };
-  const enemyX = rangePositions[combat.range];
+  const enemy = focusedEnemy();
+  const enemyLayout = enemyRenderLayout();
+  const hasVisualEffects = visualEffects.some((effect) => effect.progress < 1.2);
+  if (enemyLayout.length === 0 && !hasVisualEffects) {
+    ctx.restore();
+    shakeMagnitude *= 0.85;
+    return;
+  }
   const bobPlayer = Math.sin(time * 0.003) * 4;
-  const bobEnemy = Math.sin(time * 0.003 + 1.7) * 5;
 
   drawShip(220, 468 + bobPlayer, 1.35, false, captain().coat, PLAYER_SHIP_IMAGES[captain().id]);
-  drawShip(
-    enemyX,
-    452 + bobEnemy,
-    enemy.kind === "boss" ? 1.7 : 1.42,
-    true,
-    enemy.kind === "boss" ? "#5d2528" : "#394e51",
-    enemyShipImagePath(enemy),
-  );
+  const validEnemyIds = new Set((combatTargetPreview?.validTargets || [])
+    .filter((target) => target.type === "enemy")
+    .map((target) => target.id));
+  const allEnemiesValid = (combatTargetPreview?.validTargets || [])
+    .some((target) => target.type === "allEnemies");
+  const allEnemiesHovered = combatTargetPreview?.currentTarget?.type === "allEnemies";
+  enemyLayout.forEach((layout, index) => {
+    const layoutEnemy = findEnemy(layout.enemyId);
+    const bobEnemy = Math.sin(time * 0.003 + 1.7 + index * 0.8) * 5;
+    drawShip(
+      layout.x,
+      layout.y + bobEnemy,
+      layout.scale,
+      true,
+      layoutEnemy.kind === "boss" ? "#5d2528" : "#394e51",
+      enemyShipImagePath(layoutEnemy),
+    );
+    drawEnemyCombatHud(layout, layoutEnemy, {
+      focused: combat.focusedEnemyId === layoutEnemy.id,
+      hovered: allEnemiesHovered || (
+        combatTargetPreview?.currentTarget?.type === "enemy"
+        && combatTargetPreview.currentTarget.id === layoutEnemy.id
+      ),
+      intentIcon: enemyIntentIcon(layoutEnemy.intent),
+      intentLabel: enemyIntentLabel(layoutEnemy.intent),
+      range: enemyRange(layoutEnemy.id),
+      validDrop: allEnemiesValid || validEnemyIds.has(layoutEnemy.id),
+    });
+  });
 
   drawCombatHud(36, 42, captain().ship, run.hull, run.maxHull, run.sails, run.maxSails, "#e0ae4b");
-  drawCombatHud(754, 42, enemy.name, enemy.hull, enemy.maxHull, enemy.sails, enemy.maxSails, "#c7564d");
 
-  ctx.fillStyle = "rgba(7, 22, 29, 0.82)";
-  ctx.fillRect(472, 42, 256, 72);
-  ctx.fillStyle = "#9fb1af";
-  ctx.font = "11px system-ui, sans-serif";
-  ctx.fillText("풍향", 492, 65);
-  ctx.fillText("거리", 492, 94);
-  ctx.fillStyle = "#f2dfba";
-  ctx.font = "700 16px system-ui, sans-serif";
-  ctx.fillText(`${combat.wind.direction} ${"▸".repeat(combat.wind.speed)}`, 548, 67);
-  ctx.fillText(`${combat.range} / 3`, 548, 96);
+  if (enemyLayout.length > 0) {
+    ctx.fillStyle = "rgba(7, 22, 29, 0.82)";
+    ctx.fillRect(472, 42, 256, 72);
+    ctx.fillStyle = "#9fb1af";
+    ctx.font = "11px system-ui, sans-serif";
+    ctx.fillText("풍향", 492, 65);
+    ctx.fillText("표적 거리", 492, 94);
+    ctx.fillStyle = "#f2dfba";
+    ctx.font = "700 16px system-ui, sans-serif";
+    ctx.fillText(`${combat.wind.direction} ${"▸".repeat(combat.wind.speed)}`, 548, 67);
+    ctx.fillText(`${enemyRange(enemy.id)} / 3`, 548, 96);
 
-  ctx.strokeStyle = "rgba(238, 220, 186, 0.45)";
-  ctx.setLineDash([5, 8]);
-  ctx.beginPath();
-  ctx.moveTo(335, 550);
-  ctx.lineTo(enemyX - 115, 550);
-  ctx.stroke();
-  ctx.setLineDash([]);
+    ctx.strokeStyle = "rgba(238, 220, 186, 0.36)";
+    ctx.setLineDash([5, 8]);
+    enemyLayout.forEach((layout) => {
+      ctx.beginPath();
+      ctx.moveTo(335, 550);
+      ctx.lineTo(layout.x - 92 * layout.scale, layout.y + 35 * layout.scale);
+      ctx.stroke();
+    });
+    ctx.setLineDash([]);
+  }
 
   visualEffects = visualEffects.filter((effect) => effect.progress < 1.2);
   visualEffects.forEach((effect) => {
     effect.progress += effect.speed;
+    const anchors = combatEffectAnchors(effect, enemyLayout);
 
     if (effect.type === "flash") {
       const p = clamp(effect.progress, 0, 1);
-      const x = effect.source === "player" ? 322 : enemyX - 95;
-      const gradient = ctx.createRadialGradient(x, 453, 2, x, 453, 34);
+      const { x, y } = anchors.start;
+      const gradient = ctx.createRadialGradient(x, y, 2, x, y, 34);
       gradient.addColorStop(0, `rgba(255, 248, 207, ${0.95 * (1 - p)})`);
       gradient.addColorStop(0.4, `rgba(255, 167, 61, ${0.78 * (1 - p)})`);
       gradient.addColorStop(1, "rgba(255, 91, 35, 0)");
       ctx.beginPath();
-      ctx.arc(x, 453, 34, 0, Math.PI * 2);
+      ctx.arc(x, y, 34, 0, Math.PI * 2);
       ctx.fillStyle = gradient;
       ctx.fill();
       return;
@@ -2590,10 +4325,9 @@ function drawCombat(time) {
 
     if (effect.type === "smoke") {
       const p = clamp(effect.progress, 0, 1);
-      const originX = effect.source === "player" ? 322 : enemyX - 95;
       const direction = effect.source === "player" ? 1 : -1;
-      const x = originX + direction * effect.progress * 54 + effect.drift * p;
-      const y = 453 + effect.offset - effect.progress * 42;
+      const x = anchors.start.x + direction * effect.progress * 54 + effect.drift * p;
+      const y = anchors.start.y + effect.offset - effect.progress * 42;
       const radius = 5 + p * 17;
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -2635,14 +4369,21 @@ function drawCombat(time) {
       return;
     }
 
-    const startX = effect.source === "player" ? 322 : enemyX - 95;
-    const endX = effect.source === "player" ? enemyX - 92 : 322;
+    const startX = anchors.start.x;
+    const startY = anchors.start.y;
+    const endX = anchors.end.x;
+    const endY = anchors.end.y;
     const x = startX + (endX - startX) * effect.progress;
     const arc = Math.sin(effect.progress * Math.PI) * -95;
-    const y = 453 + arc + effect.offset + effect.missOffset * Math.max(0, effect.progress);
+    const y = startY
+      + (endY - startY) * effect.progress
+      + arc
+      + effect.offset
+      + effect.missOffset * Math.max(0, effect.progress);
     const previousProgress = Math.max(0, effect.progress - 0.08);
     const previousX = startX + (endX - startX) * previousProgress;
-    const previousY = 453
+    const previousY = startY
+      + (endY - startY) * previousProgress
       + Math.sin(previousProgress * Math.PI) * -95
       + effect.offset
       + effect.missOffset * previousProgress;
@@ -2675,13 +4416,15 @@ function drawCombat(time) {
     }
   });
 
-  ctx.fillStyle = "rgba(6, 20, 25, 0.82)";
-  ctx.fillRect(410, 606, 380, 54);
-  ctx.fillStyle = "#d9c9ab";
-  ctx.font = "12px system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText(`적 선원 ${Math.max(0, enemy.crew)} · 우리 선원 전투력 ${getCrewPower()} · ${combat.turn}턴`, 600, 638);
-  ctx.textAlign = "left";
+  if (enemyLayout.length > 0) {
+    ctx.fillStyle = "rgba(6, 20, 25, 0.82)";
+    ctx.fillRect(410, 606, 380, 54);
+    ctx.fillStyle = "#d9c9ab";
+    ctx.font = "12px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(`적 선원 ${Math.max(0, enemy.crew)} · 우리 선원 전투력 ${getCrewPower()} · ${combat.turn}턴`, 600, 638);
+    ctx.textAlign = "left";
+  }
   ctx.restore();
   shakeMagnitude *= 0.85;
 }
@@ -2762,8 +4505,35 @@ window.addEventListener("keydown", (event) => {
   }
 
   if (run?.mode === "combat") {
-    const commands = { f: "fire", s: "chain", a: "approach", d: "retreat", r: "repair", b: "board", q: "skill" };
-    if (commands[key]) combatAction(commands[key]);
+    const index = Number.parseInt(key, 10) - 1;
+    if (Number.isInteger(index) && index >= 0 && index < 8) {
+      event.preventDefault();
+      selectCardByIndex(index);
+      return;
+    }
+    if (key === "escape") {
+      if (cancelCardDrag("escape")) event.preventDefault();
+      return;
+    }
+    if (key === "enter") {
+      if (confirmKeyboardCard()) event.preventDefault();
+      return;
+    }
+    if (["arrowleft", "arrowup", "arrowright", "arrowdown", "tab"].includes(key)
+      && (keyboardCardSelection.instanceId || keyboardSkillSelection.active)) {
+      event.preventDefault();
+      moveTargetFocus(event.shiftKey || ["arrowleft", "arrowup"].includes(key) ? -1 : 1);
+      return;
+    }
+    if (cardDragState.phase !== "idle") return;
+    if (key === "q") {
+      event.preventDefault();
+      selectCaptainSkill();
+    }
+    if (key === "e") {
+      event.preventDefault();
+      endPlayerTurn();
+    }
   }
 });
 
@@ -2777,6 +4547,7 @@ ui.soundButton.addEventListener("click", () => {
 
 ui.newVoyageButton.addEventListener("click", confirmAbandonVoyage);
 ui.statsButton.addEventListener("click", showStats);
+ui.deckButton.addEventListener("click", showDeck);
 
 showHarbor();
 requestAnimationFrame(renderFrame);

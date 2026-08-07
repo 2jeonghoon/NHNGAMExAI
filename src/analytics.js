@@ -60,6 +60,16 @@ const Analytics = (() => {
       combatWins: 0,
       boardingsCaptured: 0,
       actionCounts: emptyCounts(ACTIONS),
+      cardUses: {},
+      cardHitBreakdown: { singleTarget: 0, area: 0 },
+      cardHitsByCard: {},
+      cardsAcquired: [],
+      cardsRemoved: [],
+      energySpent: 0,
+      cardTargetCount: 0,
+      playerTurns: 0,
+      playerTurnsByCombat: [],
+      fleets: [],
       damageDealt: 0,
       damageTaken: 0,
       artifactsByRarity: { normal: 0, rare: 0, epic: 0, legendary: 0 },
@@ -81,12 +91,13 @@ const Analytics = (() => {
   function recordCombatStart() {
     if (!current) return;
     current.combatCount += 1;
+    current.playerTurnsByCombat.push(0);
   }
 
-  function recordCombatEnd(won, captured) {
+  function recordCombatEnd(won, capturedCount) {
     if (!current) return;
     if (won) current.combatWins += 1;
-    if (captured) current.boardingsCaptured += 1;
+    current.boardingsCaptured += Math.max(0, Number(capturedCount) || 0);
   }
 
   function addAction(action) {
@@ -99,6 +110,49 @@ const Analytics = (() => {
     if (!current) return;
     current.damageDealt += Math.max(0, dealt || 0);
     current.damageTaken += Math.max(0, taken || 0);
+  }
+
+  function recordCardUse(cardId, family, energy, targetCount, targetMode = "singleTarget") {
+    if (!cardId) return;
+    if (family) Analytics.addAction(family);
+    if (!current) return;
+    current.cardUses[cardId] = (current.cardUses[cardId] || 0) + 1;
+    current.energySpent += Math.max(0, Number(energy) || 0);
+    const hits = Math.max(0, Number(targetCount) || 0);
+    const bucket = targetMode === "area" ? "area" : "singleTarget";
+    current.cardTargetCount += hits;
+    current.cardHitBreakdown[bucket] += hits;
+    const cardHits = current.cardHitsByCard[cardId] || { singleTarget: 0, area: 0 };
+    cardHits[bucket] += hits;
+    current.cardHitsByCard[cardId] = cardHits;
+  }
+
+  function recordCardAcquired(cardId) {
+    if (!cardId) return;
+    if (!current) return Analytics.recordEvent(`card_acquired:${cardId}`);
+    current.cardsAcquired.push(cardId);
+  }
+
+  function recordCardRemoved(cardId) {
+    if (!cardId) return;
+    if (!current) return Analytics.recordEvent(`card_removed:${cardId}`);
+    current.cardsRemoved.push(cardId);
+  }
+
+  function recordPlayerTurn() {
+    if (!current) return;
+    current.playerTurns += 1;
+    if (current.playerTurnsByCombat.length === 0) current.playerTurnsByCombat.push(0);
+    current.playerTurnsByCombat[current.playerTurnsByCombat.length - 1] += 1;
+  }
+
+  function recordFleet(enemyCount, defeatedCount, capturedCount) {
+    if (!current) return;
+    current.fleets.push({
+      enemyCount: Math.max(0, Number(enemyCount) || 0),
+      defeatedCount: Math.max(0, Number(defeatedCount) || 0),
+      capturedCount: Math.max(0, Number(capturedCount) || 0),
+    });
   }
 
   function recordArtifact(rarity) {
@@ -127,6 +181,7 @@ const Analytics = (() => {
       crewCount: summary.crew,
       artifactCount: summary.artifacts,
       travelCount: summary.travelCount,
+      finalDeck: Array.isArray(summary.finalDeck) ? [...summary.finalDeck] : [],
     });
     const runs = loadAll();
     runs.push(current);
@@ -230,6 +285,11 @@ const Analytics = (() => {
     recordCombatEnd,
     addAction,
     addDamage,
+    recordCardUse,
+    recordCardAcquired,
+    recordCardRemoved,
+    recordPlayerTurn,
+    recordFleet,
     recordArtifact,
     recordSafetyNet,
     endRun,
