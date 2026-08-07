@@ -2968,6 +2968,19 @@ function renderCombatTargetChoices(container) {
   container.append(choices);
 }
 
+
+const FAN_ROTATE_STEP_DEG = 6;
+const FAN_ROTATE_MAX_DEG = 16;
+const FAN_LIFT_STEP_PX = 5;
+
+function fanCardTransform(index, total) {
+  if (total <= 1) return { rotateDeg: 0, liftPx: 0 };
+  const center = (total - 1) / 2;
+  const offset = index - center;
+  const rotateDeg = clamp(offset * FAN_ROTATE_STEP_DEG, -FAN_ROTATE_MAX_DEG, FAN_ROTATE_MAX_DEG);
+  const liftPx = Math.abs(offset) * FAN_LIFT_STEP_PX;
+  return { rotateDeg, liftPx };
+}
 function renderCombatHand() {
   clearElement(ui.actionDock);
   if (!run || run.mode !== "combat" || !run.combat?.cardState) return;
@@ -4551,3 +4564,4 @@ ui.deckButton.addEventListener("click", showDeck);
 
 showHarbor();
 requestAnimationFrame(renderFrame);
+
