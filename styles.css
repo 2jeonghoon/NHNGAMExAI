@@ -213,6 +213,22 @@ h1 span {
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.2);
 }
 
+.action-dock:has(.combat-hand) {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 5;
+  margin-top: 0;
+  padding: 10px 14px 12px;
+  border: 0;
+  background: linear-gradient(to top, rgba(5, 18, 22, 0.95) 0%, rgba(5, 18, 22, 0.65) 55%, transparent 100%);
+  box-shadow: none;
+  pointer-events: none;
+}
+
+.action-dock:has(.combat-hand) > * {
+  pointer-events: auto;
+}
+
 .action-title {
   justify-content: space-between;
   gap: 16px;
