@@ -394,13 +394,13 @@ h1 span {
 .combat-card.is-dragging {
   z-index: 30;
   cursor: grabbing;
-  transform: translate(var(--drag-x), var(--drag-y)) rotate(-2deg) scale(1.04);
-  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.48);
+  transform: translate(var(--drag-x), var(--drag-y)) rotate(-3deg) scale(1.16);
+  box-shadow: 0 22px 46px rgba(0, 0, 0, 0.55), 0 0 0 2px rgba(255, 255, 255, 0.14);
 }
 
 .combat-card.is-dragging.has-valid-target {
   border-color: #7fe2a6;
-  box-shadow: 0 0 0 3px rgba(88, 215, 137, 0.3), 0 16px 34px rgba(0, 0, 0, 0.48);
+  box-shadow: 0 0 0 4px rgba(88, 215, 137, 0.45), 0 22px 46px rgba(0, 0, 0, 0.55);
 }
 
 .combat-card.is-flying {
@@ -1834,7 +1834,6 @@ h1 span {
     transition-duration: 0.01ms !important;
   }
 
-  .combat-card,
   .combat-card.is-dragging,
   .combat-card.is-flying,
   .combat-card.is-returning {
