@@ -185,12 +185,15 @@ h1 span {
 
 .canvas-wrap {
   position: relative;
-  overflow: hidden;
   aspect-ratio: 12 / 7;
   min-height: 420px;
   border: 1px solid #48606a;
   background: #0b3440;
   box-shadow: 0 16px 40px var(--shadow);
+}
+
+.canvas-wrap:has(.combat-hand) {
+  overflow: hidden;
 }
 
 #gameCanvas {
