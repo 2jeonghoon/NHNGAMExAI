@@ -11,6 +11,20 @@ function runFleetGame(source, overrides = {}) {
   return runGame(source, { FleetCombat: fleetCombat, ...overrides });
 }
 
+function analyticsStore() {
+  const values = new Map();
+  return {
+    localStorage: {
+      getItem(key) { return values.get(key) || null; },
+      removeItem(key) { values.delete(key); },
+      setItem(key, value) { values.set(key, value); },
+    },
+    runs() {
+      return JSON.parse(values.get("pirate-king-analytics-v1") || "[]");
+    },
+  };
+}
+
 function runDeterministicEnemyTurn({ mapId, enemies }) {
   return runFleetGame(`
     run = makeTestRun({
@@ -238,4 +252,52 @@ test("구사일생이 첫 선체 치명타를 막으면 남은 함대 행동을 
     ({ actions: actions.length, safetyNetCharges: run.safetyNetCharges, deathCause: run.deathCause || null });
   `);
   assert.deepEqual(JSON.parse(JSON.stringify(result)), { actions: 2, safetyNetCharges: 0, deathCause: "hull" });
+});
+
+test("적 행동의 종결 선체 치명타는 항해 분석에 원시 피해로 남는다", () => {
+  const store = analyticsStore();
+  runFleetGame(`
+    run = makeTestRun({
+      mapId: "calm", actIndex: 0, artifacts: [], crew: [], logs: [], repairKits: 2,
+      infamy: 0, cannons: 6, hull: 1, maxHull: 100, morale: 50, safetyNetCharges: 0,
+    });
+    Analytics.startRun("gunner", "calm");
+    Math.random = () => 0.1;
+    startCombat("battle");
+    run.hull = 1;
+    const enemy = run.combat.enemies[0];
+    enemy.range = 2;
+    enemy.damage = 5;
+    enemy.intentReady = true;
+    startEnemyTurn();
+  `, { localStorage: store.localStorage });
+
+  assert.equal(store.runs()[0].damageTaken, 5);
+});
+
+test("구사일생으로 복구된 적 선체 치명타도 항해 분석에 한 번만 남는다", () => {
+  const store = analyticsStore();
+  runFleetGame(`
+    run = makeTestRun({
+      mapId: "calm", actIndex: 0, artifacts: [], crew: [], logs: [], repairKits: 2,
+      infamy: 0, cannons: 6, hull: 1, maxHull: 100, morale: 50, safetyNetCharges: 1,
+    });
+    Analytics.startRun("gunner", "calm");
+    Math.random = () => 0.1;
+    startCombat("battle");
+    run.hull = 1;
+    run.safetyNetCharges = 1;
+    const enemy = run.combat.enemies[0];
+    enemy.range = 2;
+    enemy.damage = 5;
+    enemy.intentReady = true;
+    startEnemyTurn();
+    Analytics.endRun({
+      victory: false, deathCause: null, act: run.actIndex, infamy: run.infamy,
+      gold: run.gold, hull: run.hull, maxHull: run.maxHull, crew: run.crew.length,
+      artifacts: run.artifacts.length, travelCount: run.travelCount, finalDeck: run.deck,
+    });
+  `, { localStorage: store.localStorage });
+
+  assert.equal(store.runs()[0].damageTaken, 5);
 });

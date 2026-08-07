@@ -1813,7 +1813,8 @@ h1 span {
 }
 
 @media (forced-colors: active) {
-  .combat-card:focus-visible {
+  .combat-card:focus-visible,
+  .game-tooltip:focus-visible {
     outline: 3px solid Highlight;
     outline-offset: 3px;
   }

@@ -155,6 +155,51 @@ test("선장 공격 카드도 명중과 빗나감 함포 효과를 큐에 넣는
   assert.deepEqual(missEffect, { broadside: false, missed: true, enemyId: "enemy-0" });
 });
 
+test("결정론적 단일 표적 필살기는 격침 전 실제 적선 좌표를 함포 효과에 보존한다", () => {
+  const context = combatForCaptain("gunner", ["gunner_magazine_open"]);
+  const effect = JSON.parse(read(context, `JSON.stringify((() => {
+    run.combat.enemies[0].hull = 1;
+    let recorded = null;
+    setTimeout = () => {};
+    addCannonEffect = (_source, _broadside, _missed, enemyId, enemyAnchor) => {
+      recorded = { enemyId, enemyAnchor };
+    };
+    const instance = run.combat.cardState.hand[0];
+    playCard(instance.instanceId, "enemy-0");
+    return recorded;
+  })())`));
+
+  assert.deepEqual(effect, {
+    enemyId: "enemy-0",
+    enemyAnchor: { x: 804.86, y: 450 },
+  });
+});
+
+test("결정론적 함대 필살기는 격침 전 세 적선의 편성 좌표를 모두 보존한다", () => {
+  const context = combatForCaptain("gunner", ["gunner_fleet_broadside"], { enemyCount: 3 });
+  const effects = JSON.parse(read(context, `JSON.stringify((() => {
+    run.combat.enemies.forEach((enemy) => { enemy.hull = 1; });
+    const recorded = [];
+    const scheduled = [];
+    setTimeout = (callback, delay) => {
+      if (delay === 80 || delay === 160) scheduled.push(callback);
+    };
+    addCannonEffect = (_source, _broadside, _missed, enemyId, enemyAnchor) => {
+      recorded.push({ enemyId, enemyAnchor });
+    };
+    const instance = run.combat.cardState.hand[0];
+    playCard(instance.instanceId, "allEnemies");
+    scheduled.forEach((callback) => callback());
+    return recorded;
+  })())`));
+
+  assert.deepEqual(effects.map(({ enemyId, enemyAnchor }) => ({ enemyId, y: enemyAnchor.y })), [
+    { enemyId: "enemy-0", y: 275 },
+    { enemyId: "enemy-1", y: 380 },
+    { enemyId: "enemy-2", y: 540 },
+  ]);
+});
+
 const captainCards = [
   { captain: "gunner", id: "gunner_steady_aim", cost: 0, targetType: "self", target: "self", exhaust: false,
     want: { drawn: 1, nextShotAccuracyBonus: 0.15 } },

@@ -1681,14 +1681,20 @@ function validTargets(instanceId) {
 }
 
 function makeCardResolution() {
+  const enemyLayout = enemyRenderLayout();
+  const enemyAnchors = Object.fromEntries(enemyLayout.map(({ enemyId }) => [
+    enemyId,
+    combatEffectAnchors({ source: "player", enemyId }, enemyLayout).end,
+  ]));
   return {
     damageByEnemy: {}, playerDamage: 0, moraleDelta: 0, cardsDrawn: 0,
-    combatEnded: false, visualShots: [],
+    combatEnded: false, visualShots: [], enemyAnchors,
   };
 }
 
 function recordCardShot(resolution, enemy, hit, broadside = false) {
-  const enemyAnchor = combatEffectAnchors({ source: "player", enemyId: enemy.id }).end;
+  const enemyAnchor = resolution.enemyAnchors[enemy.id]
+    || combatEffectAnchors({ source: "player", enemyId: enemy.id }).end;
   resolution.visualShots.push({ enemyId: enemy.id, enemyAnchor, hit, broadside });
   return hit;
 }
@@ -2316,6 +2322,7 @@ function canDirectAttack(enemy) {
 }
 
 function performEnemyAttack(enemy) {
+  const playerHullBefore = run.hull;
   let message = "";
   const damageReduction = run.combat.nextEnemyAttackReduction || 0;
   run.combat.nextEnemyAttackReduction = 0;
@@ -2353,6 +2360,7 @@ function performEnemyAttack(enemy) {
     }
   }
 
+  Analytics.addDamage(0, playerHullBefore - run.hull);
   applyDeathDelay();
   return { enemyId: enemy.id, type: "attack", directAttack: true, message };
 }
@@ -2395,7 +2403,6 @@ function startEnemyTurn() {
   if (!run || run.mode !== "combat") return [];
   const combat = run.combat;
   const living = FleetCombat.livingEnemies(combat.enemies);
-  const playerHullBefore = run.hull;
   let attacksLeft = FleetCombat.attackBudget(run.mapId, living.length);
   const actions = [];
   let playerDefeated = false;
@@ -2413,14 +2420,14 @@ function startEnemyTurn() {
   }
   combat.attackCursor = (combat.attackCursor + 1) % Math.max(1, living.length);
   if (playerDefeated) return actions;
-  combat.pendingEnemyTurn = { actions, playerHullBefore };
+  combat.pendingEnemyTurn = { actions };
   return finishEnemyTurn();
 }
 
 function finishEnemyTurn() {
   if (!run || run.mode !== "combat" || !run.combat.pendingEnemyTurn) return [];
   const combat = run.combat;
-  const { actions, playerHullBefore } = combat.pendingEnemyTurn;
+  const { actions } = combat.pendingEnemyTurn;
   delete combat.pendingEnemyTurn;
   combat.turn += 1;
   combat.enemyActions += 1;
@@ -2440,7 +2447,6 @@ function finishEnemyTurn() {
     combat.message += ` 바람이 ${combat.wind.direction} ${combat.wind.speed}단계로 바뀌었다.`;
   }
 
-  Analytics.addDamage(0, playerHullBefore - run.hull);
   combat.log = [combat.message, ...(combat.log || [])].slice(0, 3);
   const defeated = checkDefeat();
   if (!defeated && run.mode === "combat" && combat.cardState && !combat.victoryScheduled) {

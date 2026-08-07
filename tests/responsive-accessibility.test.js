@@ -25,7 +25,9 @@ test("자원 툴팁은 실제 계산과 무감한 예외를 설명하고 초기 
   assert.match(html, /aria-description="적의 포격과 접안 공격/);
 });
 
-test("강제 색상 모드에서도 전투 카드의 키보드 포커스가 보인다", () => {
+test("강제 색상 모드에서도 전투 카드와 게임 툴팁의 키보드 포커스가 보인다", () => {
   assert.match(css, /@media\s*\(forced-colors:\s*active\)[\s\S]*?\.combat-card:focus-visible[\s\S]*?outline:\s*3px solid Highlight/);
   assert.match(css, /@media\s*\(forced-colors:\s*active\)[\s\S]*?\.combat-card:focus-visible[\s\S]*?outline-offset:\s*3px/);
+  assert.match(css, /@media\s*\(forced-colors:\s*active\)[\s\S]*?\.game-tooltip:focus-visible[\s\S]*?outline:\s*3px solid Highlight/);
+  assert.match(css, /@media\s*\(forced-colors:\s*active\)[\s\S]*?\.game-tooltip:focus-visible[\s\S]*?outline-offset:\s*3px/);
 });
