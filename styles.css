@@ -1683,11 +1683,34 @@ h1 span {
   }
 
   .combat-hand {
+    display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .combat-hand .combat-card:last-child:nth-child(odd) {
     grid-column: 1 / -1;
+  }
+
+  .action-dock:has(.combat-hand) {
+    position: static;
+    padding: 10px;
+    background: none;
+  }
+
+  .combat-hand {
+    padding-top: 0;
+  }
+
+  .combat-card {
+    margin-left: 0;
+    transform: none;
+  }
+
+  .combat-card:hover:not(:disabled),
+  .combat-card:focus-visible,
+  .combat-card.is-selected {
+    transform: translateY(-3px);
+    z-index: auto;
   }
 
   .combat-card {
