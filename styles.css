@@ -183,6 +183,30 @@ h1 span {
   min-width: 0;
 }
 
+.viewport-panel {
+  position: relative;
+}
+
+/* During combat the dock is absolutely positioned against this panel, so the
+   panel must not be stretched taller than .canvas-wrap by the grid row — else
+   the overlay detaches from the bottom of the canvas. */
+.viewport-panel:has(.combat-hand) {
+  align-self: start;
+  overflow: hidden;
+}
+
+/* `min-height` + `aspect-ratio` can make .canvas-wrap wider than its own grid
+   column (it derives width from the clamped height), which the panel-level clip
+   above would then cut off. Dropping the floor during combat keeps the whole
+   battle scene inside the clipped panel at its natural 12/7 ratio. */
+.viewport-panel:has(.combat-hand) .canvas-wrap {
+  min-height: 0;
+}
+
+/* z-index is intentionally left at `auto` so .canvas-wrap does NOT become a
+   stacking context: #modalLayer (z-index: 10) then competes directly with
+   .action-dock:has(.combat-hand) (z-index: 5) and always renders above the
+   fanned hand, while the non-positioned <canvas> stays below the dock. */
 .canvas-wrap {
   position: relative;
   aspect-ratio: 12 / 7;
@@ -190,10 +214,6 @@ h1 span {
   border: 1px solid #48606a;
   background: #0b3440;
   box-shadow: 0 16px 40px var(--shadow);
-}
-
-.canvas-wrap:has(.combat-hand) {
-  overflow: hidden;
 }
 
 #gameCanvas {
@@ -223,7 +243,7 @@ h1 span {
   margin-top: 0;
   padding: 10px 14px 12px;
   border: 0;
-  background: linear-gradient(to top, rgba(5, 18, 22, 0.95) 0%, rgba(5, 18, 22, 0.65) 55%, transparent 100%);
+  background: linear-gradient(to top, rgba(5, 18, 22, 0.72) 0%, rgba(5, 18, 22, 0.52) 30%, rgba(5, 18, 22, 0.28) 62%, transparent 100%);
   box-shadow: none;
   pointer-events: none;
 }
@@ -347,8 +367,8 @@ h1 span {
   --fan-lift: 0px;
   position: relative;
   display: flex;
-  flex: 0 0 118px;
-  min-width: 0;
+  flex: 0 1 118px;
+  min-width: 64px;
   min-height: 138px;
   flex-direction: column;
   align-items: stretch;
@@ -416,13 +436,13 @@ h1 span {
 }
 
 @keyframes combat-card-flight {
-  from { transform: translate(var(--drag-x), var(--drag-y)) scale(1.04); opacity: 1; }
+  from { transform: translate(var(--drag-x), var(--drag-y)) rotate(-3deg) scale(1.16); opacity: 1; }
   to { transform: translate(var(--flight-x), var(--flight-y)) scale(0.42) rotate(7deg); opacity: 0; }
 }
 
 @keyframes combat-card-return {
-  from { transform: translate(var(--drag-x), var(--drag-y)) rotate(-2deg) scale(1.04); }
-  to { transform: translate(0, 0) rotate(0) scale(1); }
+  from { transform: translate(var(--drag-x), var(--drag-y)) rotate(-3deg) scale(1.16); }
+  to { transform: rotate(var(--fan-rotate)) translateY(var(--fan-lift)) scale(1); }
 }
 
 .combat-card-cost {
@@ -1685,6 +1705,8 @@ h1 span {
   .combat-hand {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+    padding-top: 0;
   }
 
   .combat-hand .combat-card:last-child:nth-child(odd) {
@@ -1694,15 +1716,20 @@ h1 span {
   .action-dock:has(.combat-hand) {
     position: static;
     padding: 10px;
-    background: none;
-  }
-
-  .combat-hand {
-    padding-top: 0;
+    border: 1px solid var(--line);
+    border-right: 0;
+    border-left: 0;
+    background: #0d232b;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.2);
   }
 
   .combat-card {
+    /* renderCombatHand sets the fan vars inline; neutralize them here so the
+       flat grid layout and the card-return animation both resolve to no fan. */
+    --fan-rotate: 0deg !important;
+    --fan-lift: 0px !important;
     margin-left: 0;
+    min-height: 124px;
     transform: none;
   }
 
@@ -1711,10 +1738,6 @@ h1 span {
   .combat-card.is-selected {
     transform: translateY(-3px);
     z-index: auto;
-  }
-
-  .combat-card {
-    min-height: 124px;
   }
 
   .combat-target-choices {
