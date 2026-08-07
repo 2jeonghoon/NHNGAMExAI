@@ -18,6 +18,7 @@
   - `카드 설명은 현재 전투 수치로 계산되고 내부 함수명이나 기존 효과 문구를 노출하지 않는다`
   - `HUD 접근성 이름은 현재 자원 값을 포함하고 선원 설명을 분리한다`
   - `알 수 없는 카드 인스턴스는 손패 렌더링에서 건너뛴다`
+- **전체 스위트 기준선:** 저장소 루트에서 인자 없이 `node --test`를 실행하면(디렉터리 자동 탐색) 179개 테스트 중 157 pass / 22 fail이 정상이다 (22 = `card-ui.test.js`의 21개 + `card-progression.test.js:306` "전투 보상 위에서 연 덱 열람은 원래 모달과 핸들러를 상태 변경 없이 복원한다" 1개, 둘 다 이번 작업과 무관한 기존 실패). **주의:** `node --test tests/`처럼 경로를 인자로 주면 Node가 이를 `require`할 모듈 경로로 오인해 `MODULE_NOT_FOUND`로 즉시 실패한다 — 항상 인자 없이 `node --test`를 저장소 루트에서 실행하거나, 개별 파일을 `node --test tests/파일명.test.js` 형태로 지정한다.
 
 ---
 
@@ -643,8 +644,8 @@ git commit -m "fix(ui): keep boxed hand layout on narrow viewports"
 
 - [ ] **Step 1: 전체 자동 테스트 실행**
 
-Run: `node --test tests/`
-Expected: `tests/card-ui.test.js`가 3 pass / 21 fail (Global Constraints의 기존 실패 그대로), 나머지 모든 테스트 파일은 이 작업 시작 전과 동일한 통과율을 유지. 차이가 있다면 어느 테스트가 새로 깨졌는지 정확히 특정하고 원인을 CSS/JS 변경과 연결해 확인한다.
+Run: `node --test` (저장소 루트에서, 경로 인자 없이 — 디렉터리를 인자로 주면 `MODULE_NOT_FOUND`로 실패한다)
+Expected: 179개 테스트 중 157 pass / 22 fail 그대로 (Global Constraints의 전체 스위트 기준선과 동일: `card-ui.test.js`의 21개 + `card-progression.test.js:306`의 1개, 둘 다 기존 실패). 차이가 있다면 어느 테스트가 새로 깨졌는지 정확히 특정하고 원인을 CSS/JS 변경과 연결해 확인한다.
 
 - [ ] **Step 2: 브라우저 실전 플레이**
 
