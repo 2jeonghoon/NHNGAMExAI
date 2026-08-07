@@ -331,9 +331,11 @@ h1 span {
 }
 
 .combat-hand {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
-  gap: 7px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  flex-wrap: nowrap;
+  padding-top: 34px;
 }
 
 .combat-card {
@@ -341,14 +343,18 @@ h1 span {
   --drag-y: 0px;
   --flight-x: 0px;
   --flight-y: 0px;
+  --fan-rotate: 0deg;
+  --fan-lift: 0px;
   position: relative;
   display: flex;
+  flex: 0 0 118px;
   min-width: 0;
   min-height: 138px;
   flex-direction: column;
   align-items: stretch;
   gap: 4px;
   padding: 10px 9px 8px;
+  margin-left: -38px;
   overflow: hidden;
   border: 1px solid #516b70;
   border-top: 3px solid #8ba1a2;
@@ -357,7 +363,13 @@ h1 span {
   box-shadow: 0 7px 16px rgba(0, 0, 0, 0.24);
   cursor: grab;
   touch-action: none;
-  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+  transform-origin: bottom center;
+  transform: rotate(var(--fan-rotate)) translateY(var(--fan-lift));
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease, z-index 0ms;
+}
+
+.combat-hand .combat-card:first-child {
+  margin-left: 0;
 }
 
 .combat-card.rarity-rare { border-top-color: #66b6d1; }
@@ -369,7 +381,8 @@ h1 span {
   border-color: #f0c968;
   outline: none;
   box-shadow: 0 0 0 2px rgba(240, 201, 104, 0.28), 0 9px 22px rgba(0, 0, 0, 0.34);
-  transform: translateY(-3px);
+  transform: translateY(calc(var(--fan-lift) - 34px)) rotate(0deg);
+  z-index: 20;
 }
 
 .combat-card:disabled {
