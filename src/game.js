@@ -3027,6 +3027,9 @@ function renderCombatHand() {
     button.type = "button";
     button.disabled = Boolean(reason);
     button.setAttribute("data-instance-id", instance.instanceId);
+    const { rotateDeg, liftPx } = fanCardTransform(index, state.hand.length);
+    button.style.setProperty("--fan-rotate", `${rotateDeg}deg`);
+    button.style.setProperty("--fan-lift", `${liftPx}px`);
     button.setAttribute("aria-keyshortcuts", String(index + 1));
     button.setAttribute("aria-pressed", String(selected));
     button.append(
