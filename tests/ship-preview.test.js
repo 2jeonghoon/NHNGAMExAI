@@ -30,3 +30,28 @@ test("항해 전 미리보기에 선택한 선장의 배 이미지를 사용한�
     "./src/assets/ships/player/ship-player-raul-storm-eye.png",
   );
 });
+
+test("항해 중 지도 화면에서도 선장의 배 이미지를 사용한다", () => {
+  const context = loadGameScripts(["src/game.js"]);
+  const calls = vm.runInContext(`
+    globalThis.shipDrawCalls = [];
+    drawOcean = () => {};
+    drawMapNode = () => {};
+    drawShip = (...args) => shipDrawCalls.push(args);
+    run = {
+      captainId: "gunner",
+      actIndex: 0,
+      artifacts: [],
+      currentNodeId: "n0",
+      map: { nodes: [{ id: "n0", x: 100, y: 100, type: "start", next: [] }] },
+    };
+    drawMap(0);
+    shipDrawCalls;
+  `, context);
+
+  assert.equal(calls.length, 1);
+  assert.equal(
+    calls[0][5],
+    "./src/assets/ships/player/ship-player-isabella-black-barrel.png",
+  );
+});

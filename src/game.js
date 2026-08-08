@@ -3952,7 +3952,7 @@ function drawMap(time) {
   ctx.restore();
 
   run.map.nodes.forEach((node) => drawMapNode(node, current, available, time));
-  drawShip(current.x - 4, current.y - 47, 0.54, false, captain().coat);
+  drawShip(current.x - 4, current.y - 47, 0.54, false, captain().coat, PLAYER_SHIP_IMAGES[captain().id]);
 
   mapClickRipples = mapClickRipples.filter((ripple) => ripple.progress < 1);
   mapClickRipples.forEach((ripple) => {

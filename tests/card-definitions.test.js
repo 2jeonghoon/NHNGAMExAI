@@ -76,7 +76,7 @@ test("카드는 안정된 효과 ID와 표시용 메타데이터를 제공한다
     targetType: "enemy",
     exhaust: false,
     effect: "aimed_fire",
-    description: "포격 명중률 +15%p, cannonDamage() + 6 선체 피해",
+    description: "포격 명중률 +15%p, 기존 포격 피해 +6",
   });
   assert.deepEqual(cards.fireship, {
     id: "fireship",
@@ -90,6 +90,12 @@ test("카드는 안정된 효과 ID와 표시용 메타데이터를 제공한다
     effect: "fireship",
     description: "모든 적에게 명중 보장 선체 10·돛 5 피해, 사기 4 감소",
   });
+});
+
+test("카드 설명에는 내부 함수 호출 문자열이 노출되지 않는다", () => {
+  const cards = readJson(loadCards(), "CardDefinitions.CARD_DEFINITIONS");
+  const leaking = Object.values(cards).filter((card) => /[a-zA-Z_]+\(\)/.test(card.description));
+  assert.deepEqual(leaking.map((card) => card.id), []);
 });
 
 test("보상 풀은 현재 선장의 카드만 포함하고 새 배열을 반환한다", () => {
