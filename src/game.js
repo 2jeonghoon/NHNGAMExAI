@@ -3791,6 +3791,23 @@ function statsRow(cells) {
 }
 
 function showStats() {
+  const previousModal = {
+    hidden: ui.modalLayer.hidden,
+    className: ui.modalPanel.className,
+    children: Array.from(ui.modalPanel.childNodes || []),
+  };
+  const restore = () => {
+    if (previousModal.hidden) {
+      clearElement(ui.modalPanel);
+      ui.modalLayer.hidden = true;
+      return;
+    }
+    clearElement(ui.modalPanel);
+    ui.modalPanel.className = previousModal.className;
+    ui.modalPanel.append(...previousModal.children);
+    ui.modalLayer.hidden = false;
+  };
+
   const summary = Analytics.getSummary();
   setModalBase(
     "VOYAGE LOG",
@@ -3801,7 +3818,7 @@ function showStats() {
 
   if (summary.totalRuns === 0) {
     ui.modalPanel.append(makeElement("p", "empty-state", "아직 기록된 항해가 없습니다. 항해를 마치면 이곳에 결과가 쌓입니다."));
-    addModalActions([{ label: "닫기", primary: true, onClick: closeModal }]);
+    addModalActions([{ label: "닫기", primary: true, onClick: restore }]);
     return;
   }
 
@@ -3898,7 +3915,7 @@ function showStats() {
   ui.modalPanel.append(recentTable);
 
   addModalActions([
-    { label: "닫기", onClick: closeModal },
+    { label: "닫기", onClick: restore },
     { label: "기록 초기화", onClick: confirmClearAnalytics },
     { label: "JSON 내보내기", primary: true, onClick: () => Analytics.exportJSON() },
   ]);

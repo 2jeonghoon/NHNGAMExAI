@@ -352,6 +352,39 @@ test("전투 보상 위에서 연 덱 열람은 원래 모달과 핸들러를 �
   });
 });
 
+test("선장 선택 화면 위에서 연 항해 기록 분석은 닫으면 원래 화면을 복원한다", () => {
+  const document = treeDocument();
+  const context = loadGameScripts([
+    "src/analytics.js",
+    "src/card-definitions.js",
+    "src/game.js",
+  ], { document });
+  const result = read(context, `
+    showHarbor();
+    const harborChild = ui.modalPanel.childNodes[0];
+    const harborClassName = ui.modalPanel.className;
+    let closeAction;
+    addModalActions = (actions) => { closeAction = actions[0].onClick; };
+
+    showStats();
+    const statsChangedModal = ui.modalPanel.childNodes[0] !== harborChild;
+    closeAction();
+    ({
+      statsChangedModal,
+      restoredChild: ui.modalPanel.childNodes[0] === harborChild,
+      restoredClassName: ui.modalPanel.className === harborClassName,
+      modalVisible: !ui.modalLayer.hidden,
+    });
+  `);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    statsChangedModal: true,
+    restoredChild: true,
+    restoredClassName: true,
+    modalVisible: true,
+  });
+});
+
 test("일반 함대 승리는 통계에서 카드 보상 하나를 거쳐 항로로 복귀한다", () => {
   assert.deepEqual(Array.from(rewardContinuation("battle")), ["stats:승리", "card", "map"]);
 });
