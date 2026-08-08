@@ -223,6 +223,20 @@ h1 span {
   cursor: default;
 }
 
+.wind-info.game-tooltip {
+  display: none;
+  position: absolute;
+  left: 39.333%;
+  top: 6%;
+  width: 21.333%;
+  height: 10.286%;
+  z-index: 4;
+}
+
+.viewport-panel:has(.combat-hand) .wind-info {
+  display: block;
+}
+
 #gameCanvas.map-active {
   cursor: pointer;
 }
@@ -766,6 +780,23 @@ h1 span {
 .game-tooltip.tooltip-align-right::after {
   right: 24px;
   left: auto;
+}
+
+.game-tooltip.tooltip-below::before {
+  bottom: auto;
+  top: calc(100% + 9px);
+  transform: translate(-50%, -4px);
+}
+
+.game-tooltip.tooltip-below:hover::before,
+.game-tooltip.tooltip-below:focus-visible::before {
+  transform: translate(-50%, 0);
+}
+
+.game-tooltip.tooltip-below::after {
+  bottom: auto;
+  top: calc(100% + 4px);
+  transform: translate(-50%, 0) rotate(225deg);
 }
 
 .identity-card,

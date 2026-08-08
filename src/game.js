@@ -785,7 +785,7 @@ function updateHud() {
     updateHudMetric(ui.gold, "금화", 0);
     updateHudMetric(ui.cannons, "화력", 0);
     updateHudMetric(ui.crewPower, "선원 목록 ·", "전투력 0");
-    ui.artifactCount.textContent = "0 / 6";
+    ui.artifactCount.textContent = "0";
     ui.deckButton.textContent = "덱 0장";
     ui.deckButton.disabled = true;
     clearElement(ui.crewList);
@@ -812,7 +812,7 @@ function updateHud() {
   updateHudMetric(ui.gold, "금화", run.gold);
   updateHudMetric(ui.cannons, "화력", getCannonPower());
   updateHudMetric(ui.crewPower, "선원 목록 ·", `전투력 ${getCrewPower()}`);
-  ui.artifactCount.textContent = `${run.artifacts.length} / 6`;
+  ui.artifactCount.textContent = `${run.artifacts.length}`;
   ui.deckButton.textContent = `덱 ${run.deck.length}장`;
   ui.deckButton.disabled = false;
 
@@ -2593,12 +2593,12 @@ function combatCardDescription(card) {
     chain: `명중 ${combatHitChance("chain")} · 돛 ${formatCombatRange(chainMinimum, chainMaximum)} 피해`,
     heavy_chain: `명중 ${combatHitChance("chain")} · 돛 ${formatCombatRange(chainMinimum + 8, chainMaximum + 8)} 피해`,
     entangling_chain: `명중 ${combatHitChance("chain")} · 돛 ${formatCombatRange(3 + gunnerBonus, 6 + gunnerBonus)} 피해 · 다음 이동 차단`,
-    approach: `성공 ${approachChance}% · 대상과 거리 -1 · 회피 8%`,
+    approach: `성공 ${approachChance}% · 대상과 거리 -1 · 성공 시 이번 적 턴 적 명중률 -8%p`,
     tailwind_charge: `순풍 전용 · 성공 ${approachChance}% · 거리 -1 · 카드 1장 드로우`,
     ram: `성공 ${approachChance}% · 거리 -1 · 적 선체 8 · 자신의 선체 3 피해`,
     retreat: FleetCombat.livingEnemies(run?.combat?.enemies || []).every((enemy) => enemyRange(enemy.id) >= 3)
-      ? `거리 유지 · 회피 28%${hasArtifact("anchor") ? " · 사기 2 회복" : ""}`
-      : `모든 적과 거리 +1 · 회피 20%${hasArtifact("anchor") ? " · 사기 2 회복" : ""}`,
+      ? `거리 유지 · 이번 적 턴 적 명중률 -28%p${hasArtifact("anchor") ? " · 사기 2 회복" : ""}`
+      : `모든 적과 거리 +1 · 이번 적 턴 적 명중률 -20%p${hasArtifact("anchor") ? " · 사기 2 회복" : ""}`,
     repair: `수리도구 1개 · 선체 ${7 + getCarpenterRepairBonus()} · 돛 3 회복`,
     overhaul: `수리도구 1개 · 선체 ${14 + getCarpenterRepairBonus()} · 돛 6 회복`,
     board: `거리 1·적 돛 55% 이하 · 나포 ${combatBoardChanceText()}`,
@@ -3204,14 +3204,14 @@ function showArtifactChoice(title, afterChoice) {
   run.mode = "reward";
   const availablePool = ARTIFACTS.filter((artifact) => !hasArtifact(artifact.id));
   const available = drawArtifactChoices(availablePool, 3);
-  if (available.length === 0 || run.artifacts.length >= 6) {
+  if (available.length === 0) {
     run.infamy += 8;
-    logEvent("유물칸이 가득 차 유물을 악명 8로 바꿨다.");
+    logEvent("더 얻을 수 있는 유물이 없어 악명 8로 바꿨다.");
     afterChoice();
     return;
   }
 
-  setModalBase("CHOOSE ONE", title, `한 항해에서 지닐 수 있는 유물은 여섯 개입니다. 후보 1칸의 기본 등급 확률은 ${rarityOddsText()}이며, 남은 등급만으로 재정규화합니다.`);
+  setModalBase("CHOOSE ONE", title, `후보 1칸의 기본 등급 확률은 ${rarityOddsText()}이며, 남은 등급만으로 재정규화합니다.`);
   const grid = makeElement("div", "choice-grid");
   available.forEach((artifact) => {
     const rarity = RARITIES[artifact.rarity] || RARITIES.normal;
@@ -3230,7 +3230,7 @@ function showArtifactChoice(title, afterChoice) {
 }
 
 function acquireArtifact(artifact) {
-  if (run.artifacts.length >= 6 || hasArtifact(artifact.id)) return;
+  if (hasArtifact(artifact.id)) return;
   run.artifacts.push(artifact);
   if (artifact.id === "plating") {
     run.maxHull += 8;
