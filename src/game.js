@@ -1536,6 +1536,7 @@ function startCombat(kind) {
     wind: rollWind(),
     turn: 1,
     evasion: 0,
+    block: 0,
     skillReady: true,
     locked: false,
     firstShotUsed: false,
@@ -1802,7 +1803,7 @@ function executePublicCard(cardId, target) {
   const moraleBefore = run.morale;
   let message = CardDefinitions.getCard(cardId)?.name || cardId;
 
-  if (cardId === "fire" && resolveCardShot(resolution, enemy, "fire")) {
+  if (cardId === "fire" && resolveCardShot(resolution, enemy, "fire", -0.05)) {
     const hullDamage = cannonDamage();
     const crewDamage = Math.random() < 0.25 ? 1 : 0;
     damageEnemy(enemy, { hull: hullDamage, crew: crewDamage }, resolution);
@@ -1813,7 +1814,7 @@ function executePublicCard(cardId, target) {
   } else if (cardId === "rapid_fire") {
     if (resolveCardShot(resolution, enemy, "fire")) damageEnemy(enemy, { hull: Math.max(1, Math.round(cannonDamage() * 0.6)) }, resolution);
     resolution.cardsDrawn = drawForCard(1);
-  } else if (cardId === "chain" && resolveCardShot(resolution, enemy, "chain")) {
+  } else if (cardId === "chain" && resolveCardShot(resolution, enemy, "chain", -0.05)) {
     damageEnemy(enemy, { sails: randomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0) }, resolution);
   } else if (cardId === "heavy_chain" && resolveCardShot(resolution, enemy, "chain")) {
     damageEnemy(enemy, { sails: randomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0) + 8 }, resolution);
@@ -1858,6 +1859,9 @@ function executePublicCard(cardId, target) {
     run.repairKits -= 1;
     run.hull = Math.min(run.maxHull, run.hull + 14 + getCarpenterRepairBonus());
     run.sails = Math.min(run.maxSails, run.sails + 6);
+  } else if (cardId === "brace_hull") {
+    combat.block += 8;
+    message = "방벽을 전개해 이번 적 턴의 피해를 흡수한다.";
   } else if (cardId === "board") {
     const chance = clamp(0.42 + (getCrewPower() - enemy.crew) / 45 + (hasTrait("brave") ? 0.08 : 0), 0.2, 0.9);
     captureEnemy(enemy, chance, resolution);
@@ -2352,6 +2356,15 @@ function canDirectAttack(enemy) {
   return !(enemyRange(enemy.id) === 3 && enemy.sails > 0 && Math.random() < 0.58);
 }
 
+function applyEnemyDamageToPlayer(rawDamage) {
+  const combat = run.combat;
+  const blocked = Math.min(combat.block, rawDamage);
+  combat.block -= blocked;
+  const remaining = rawDamage - blocked;
+  run.hull -= remaining;
+  return { remaining, blocked };
+}
+
 function performEnemyAttack(enemy) {
   const playerHullBefore = run.hull;
   let message = "";
@@ -2362,9 +2375,11 @@ function performEnemyAttack(enemy) {
 
   if (enemyRange(enemy.id) === 1 && enemy.crew > getCrewPower() * 0.8 && Math.random() < 0.3) {
     const damage = Math.round((randomInt(4, 7) + run.actIndex) * (1 - damageReduction));
-    run.hull -= damage;
+    const { remaining, blocked } = applyEnemyDamageToPlayer(damage);
     run.morale -= 5;
-    message = `${enemy.name} 선원들이 난입했다. 선체 피해 ${damage}, 사기 -5.`;
+    message = blocked > 0
+      ? `${enemy.name} 선원들이 난입했다. 방어막이 ${blocked} 흡수, 선체 피해 ${remaining}, 사기 -5.`
+      : `${enemy.name} 선원들이 난입했다. 선체 피해 ${remaining}, 사기 -5.`;
     playTone(84, 0.18, "sawtooth", 0.045);
   } else {
     const hitChance = clamp(
@@ -2374,14 +2389,18 @@ function performEnemyAttack(enemy) {
     );
     if (Math.random() < hitChance) {
       const damage = Math.round((enemy.damage + randomInt(0, 4)) * (1 - damageReduction));
-      run.hull -= damage;
+      const { remaining, blocked } = applyEnemyDamageToPlayer(damage);
       run.morale -= 2;
       if (Math.random() < 0.28) {
         const sailDamage = randomInt(3, 6);
         run.sails -= sailDamage;
-        message = `${enemy.name}의 포격이 선체 ${damage}, 돛 ${sailDamage} 피해를 입혔다.`;
+        message = blocked > 0
+          ? `${enemy.name}의 포격이 방어막 ${blocked} 흡수 후 선체 ${remaining}, 돛 ${sailDamage} 피해를 입혔다.`
+          : `${enemy.name}의 포격이 선체 ${remaining}, 돛 ${sailDamage} 피해를 입혔다.`;
       } else {
-        message = `${enemy.name}의 포격 명중. 선체 피해 ${damage}.`;
+        message = blocked > 0
+          ? `${enemy.name}의 포격 명중. 방어막이 ${blocked} 흡수, 선체 피해 ${remaining}.`
+          : `${enemy.name}의 포격 명중. 선체 피해 ${remaining}.`;
       }
       addCannonEffect("enemy", false, false, enemy.id);
       playTone(72, 0.2, "square", 0.055);
@@ -2465,6 +2484,7 @@ function finishEnemyTurn() {
   combat.locked = false;
   combat.message = actions.map((action) => action.message).join(" ");
   combat.evasion = 0;
+  combat.block = 0;
   applyDeathDelay();
   run.hull = Math.max(0, run.hull);
   run.sails = Math.max(0, run.sails);
@@ -2618,10 +2638,10 @@ function combatCardDescription(card) {
   const chainMaximum = 10 + gunnerBonus + chainLockerBonus;
   const approachChance = combatApproachChance();
   const descriptions = {
-    fire: `명중 ${combatHitChance("fire")} · 선체 ${combatCannonDamageRange()} 피해 · 선원 1 피해 25%`,
+    fire: `명중 ${combatHitChance("fire", -0.05)} · 선체 ${combatCannonDamageRange()} 피해 · 선원 1 피해 25%`,
     aimed_fire: `명중 ${combatHitChance("fire", 0.15)} · 선체 ${combatCannonDamageRange(1, 6)} 피해`,
     rapid_fire: `명중 ${combatHitChance("fire")} · 선체 ${combatCannonDamageRange(0.6)} 피해 · 카드 1장 드로우`,
-    chain: `명중 ${combatHitChance("chain")} · 돛 ${formatCombatRange(chainMinimum, chainMaximum)} 피해`,
+    chain: `명중 ${combatHitChance("chain", -0.05)} · 돛 ${formatCombatRange(chainMinimum, chainMaximum)} 피해`,
     heavy_chain: `명중 ${combatHitChance("chain")} · 돛 ${formatCombatRange(chainMinimum + 8, chainMaximum + 8)} 피해`,
     entangling_chain: `명중 ${combatHitChance("chain")} · 돛 ${formatCombatRange(3 + gunnerBonus, 6 + gunnerBonus)} 피해 · 다음 이동 차단`,
     approach: `성공 ${approachChance}% · 대상과 거리 -1 · 성공 시 이번 적 턴 적 명중률 -8%p`,
@@ -4499,6 +4519,11 @@ function drawCombatHud(x, y, name, hull, maxHull, sails, maxSails, accent) {
   ctx.fillStyle = "#f3e4c7";
   ctx.font = "700 18px Georgia, serif";
   ctx.fillText(name, x + 16, y + 27);
+  if (run.combat?.block > 0) {
+    ctx.fillStyle = "#7fe2a6";
+    ctx.font = "700 12px system-ui, sans-serif";
+    ctx.fillText(`방어막 ${run.combat.block}`, x + 325, y + 27);
+  }
   const hullRatio = clamp(hull / maxHull, 0, 1);
   const sailRatio = clamp(sails / maxSails, 0, 1);
   ctx.fillStyle = "#08181e";

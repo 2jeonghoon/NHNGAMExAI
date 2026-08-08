@@ -27,6 +27,7 @@ const CardDefinitions = (() => {
     card("repair", "응급수리", "수리", 1, "normal", null, "self", false, "수리도구 1개로 기존 선체와 돛을 복구한다."),
     card("rigging_repair", "돛줄 정비", "수리", 0, "rare", null, "self", false, "수리도구 없이 돛 4 회복"),
     card("overhaul", "대수선", "수리", 2, "epic", null, "self", false, "수리도구 1개로 14 + 수리공 보너스 선체와 돛 6 회복"),
+    card("brace_hull", "방벽 전개", "방어", 1, "normal", null, "self", false, "이번 적 턴 동안 받는 피해를 8까지 흡수하는 방어막을 두른다."),
     card("board", "접안 공격", "접안", 2, "normal", null, "enemy", false, "기존 거리·돛 조건과 확률로 함선 나포를 시도한다."),
     card("grappling_hook", "갈고리 투척", "접안", 1, "rare", null, "enemy", false, "거리 1에서 지정한 적의 돛 5 피해"),
     card("desperate_board", "결사 돌입", "접안", 3, "epic", null, "enemy", false, "거리 1이면 적 돛 조건을 무시하고 기존 접안 확률 -15%p(15~75%)로 나포 시도"),

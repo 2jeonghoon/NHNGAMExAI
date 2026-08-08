@@ -321,7 +321,7 @@ test("손패와 전투 자원은 의미 있는 버튼과 비활성 이유로 렌
   assert.equal(card.tagName, "BUTTON");
   assert.equal(card.disabled, true);
   assert.match(card.querySelector(".combat-card-name").textContent, /선체 포격/);
-  assert.match(card.querySelector(".combat-card-description").textContent, /명중 81%.*선체 8~12/);
+  assert.match(card.querySelector(".combat-card-description").textContent, /명중 76%.*선체 8~12/);
   assert.match(ui.actionDock.querySelector(".combat-disabled-reason").textContent, /에너지/);
   assert.equal(ui.actionDock.querySelectorAll(".pile-button").length, 3);
   assert.equal(ui.actionDock.querySelector(".captain-skill-button").tagName, "BUTTON");
@@ -332,9 +332,9 @@ test("카드 설명은 현재 전투 수치로 계산되고 내부 함수명이�
   const ui = renderHandWith(["fire", "aimed_fire", "chain", "approach", "repair", "board"], { energy: 9 });
   const descriptions = ui.actionDock.querySelectorAll(".combat-card-description").map((element) => element.textContent);
 
-  assert.equal(descriptions[0], "명중 81% · 선체 8~12 피해 · 선원 1 피해 25%");
+  assert.equal(descriptions[0], "명중 76% · 선체 8~12 피해 · 선원 1 피해 25%");
   assert.equal(descriptions[1], "명중 96% · 선체 14~18 피해");
-  assert.equal(descriptions[2], "명중 71% · 돛 6~10 피해");
+  assert.equal(descriptions[2], "명중 66% · 돛 6~10 피해");
   assert.equal(descriptions[3], "성공 80% · 대상과 거리 -1 · 성공 시 이번 적 턴 적 명중률 -8%p");
   assert.equal(descriptions[4], "수리도구 1개 · 선체 7 · 돛 3 회복");
   assert.equal(descriptions[5], "거리 1·적 돛 55% 이하 · 나포 20%");

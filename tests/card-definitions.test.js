@@ -17,7 +17,7 @@ function readJson(context, expression) {
   return JSON.parse(read(context, `JSON.stringify(${expression})`));
 }
 
-test("카드 카탈로그는 공용 21종과 선장별 7종으로 구성된다", () => {
+test("카드 카탈로그는 공용 22종과 선장별 7종으로 구성된다", () => {
   const context = loadCards();
   const summary = readJson(context, `(() => {
     const cards = Object.values(CardDefinitions.CARD_DEFINITIONS);
@@ -32,9 +32,9 @@ test("카드 카탈로그는 공용 21종과 선장별 7종으로 구성된다",
   })()`);
 
   assert.deepEqual(summary, {
-    total: 49,
-    ids: 49,
-    common: 21,
+    total: 50,
+    ids: 50,
+    common: 22,
     captainCounts: { gunner: 7, navigator: 7, mystic: 7, revenant: 7 },
   });
 });
@@ -54,7 +54,7 @@ test("카드는 안정된 효과 ID와 표시용 메타데이터를 제공한다
     [
       "fire", "aimed_fire", "rapid_fire", "chain", "heavy_chain", "entangling_chain",
       "approach", "tailwind_charge", "ram", "retreat", "hard_turn", "smoke_sail",
-      "repair", "rigging_repair", "overhaul", "board", "grappling_hook", "desperate_board",
+      "repair", "rigging_repair", "overhaul", "brace_hull", "board", "grappling_hook", "desperate_board",
       "barrage_fire", "chain_rain", "fireship", "gunner_steady_aim", "gunner_shrapnel",
       "gunner_double_broadside", "gunner_powder_shift", "gunner_overcharge", "gunner_magazine_open",
       "gunner_fleet_broadside", "navigator_read_wind", "navigator_raise_sails",
@@ -112,7 +112,7 @@ test("보상 풀은 현재 선장의 카드만 포함하고 새 배열을 반환
     };
   })()`);
 
-  assert.deepEqual(summary, { count: 28, hasGunner: true, hasNavigator: false, afterMutation: 28 });
+  assert.deepEqual(summary, { count: 29, hasGunner: true, hasNavigator: false, afterMutation: 29 });
 });
 
 test("정의되지 않은 카드 ID는 상속된 객체 이름도 null로 처리한다", () => {
