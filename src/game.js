@@ -1317,7 +1317,38 @@ function generateMap(actIndex) {
     });
   }
 
-  return { layers, nodes: layers.flat() };
+  const detourNodes = [];
+  [1, 2].forEach((column) => {
+    const currentLayer = layers[column];
+    const nextLayer = layers[column + 1];
+    const skipLayer = layers[column + 2];
+    if (!skipLayer) return;
+    currentLayer.forEach((node, index) => {
+      const roll = Math.random();
+      if (roll < 0.25) {
+        const nearestSkip = [...skipLayer].sort((left, right) => Math.abs(left.y - node.y) - Math.abs(right.y - node.y))[0];
+        if (!node.next.includes(nearestSkip.id)) node.next.push(nearestSkip.id);
+      } else if (roll < 0.5) {
+        const nearestNext = [...nextLayer].sort((left, right) => Math.abs(left.y - node.y) - Math.abs(right.y - node.y))[0];
+        const detourRow = (node.row + nearestNext.row) / 2;
+        const detourColumn = column + 0.5;
+        const detourNode = {
+          id: `a${actIndex}-c${column}-detour${index}`,
+          column: detourColumn,
+          row: detourRow,
+          x: 78 + detourColumn * 207,
+          y: 60 + detourRow * 120,
+          type: randomChoice(["event", "battle", "treasure"]),
+          next: [nearestNext.id],
+          visited: false,
+        };
+        detourNodes.push(detourNode);
+        node.next.push(detourNode.id);
+      }
+    });
+  });
+
+  return { layers, nodes: [...layers.flat(), ...detourNodes] };
 }
 
 function currentNode() {
