@@ -1455,7 +1455,7 @@ function makeEnemy(kind, excludedNames = []) {
       ? eliteNames[act]
       : randomChoice(availableNames.length > 0 ? availableNames : regularNames[act]);
   const enemyMult = run.enemyMultiplier || 1;
-  const maxHull = Math.round((boss ? 54 + act * 15 : elite ? 40 + act * 12 : 27 + act * 9 + randomInt(-2, 4)) * enemyMult);
+  const maxHull = Math.round((boss ? 54 + act * 15 : elite ? 40 + act * 12 : 31 + act * 9 + randomInt(-2, 4)) * enemyMult);
   const maxSails = Math.round((boss ? 24 + act * 4 : elite ? 20 + act * 3 : 15 + act * 2) * enemyMult);
   const crew = Math.round((boss ? 20 + act * 5 : elite ? 16 + act * 4 : 10 + act * 3) * enemyMult);
 
@@ -1469,7 +1469,7 @@ function makeEnemy(kind, excludedNames = []) {
     maxSails,
     crew,
     maxCrew: crew,
-    damage: Math.round((boss ? 8 + act * 2 : elite ? 7 + act : 5 + act) * enemyMult),
+    damage: Math.round((boss ? 8 + act * 2 : elite ? 7 + act : 6 + act) * enemyMult),
     rewardGold: boss ? 28 + act * 10 : elite ? 20 + act * 7 : 11 + act * 5,
     rewardInfamy: boss ? 28 + act * 8 : elite ? 15 + act * 4 : 7 + act * 2,
   };

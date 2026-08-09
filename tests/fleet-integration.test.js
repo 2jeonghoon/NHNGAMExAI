@@ -83,11 +83,22 @@ test("다중 편성은 함선 능력치와 전투 전체 보상을 편성 크기
   assert.deepEqual(JSON.parse(JSON.stringify(result)), {
     enemyStats: [
       { hull: 26, sails: 13, crew: 10, damage: 5 },
-      { hull: 16, sails: 10, crew: 7, damage: 3 },
+      { hull: 19, sails: 10, crew: 7, damage: 4 },
     ],
     rewardGold: 25,
     rewardInfamy: 19,
   });
+});
+
+test("1해역 일반 전투 적은 체력 31~35, 공격력 6으로 강화되어 있다", () => {
+  const result = runFleetGame(`
+    run = makeTestRun({ mapId: "calm", actIndex: 0, artifacts: [], crew: [], logs: [], repairKits: 2, infamy: 0, cannons: 6 });
+    Math.random = () => 0.1;
+    startCombat("battle");
+    ({ hull: run.combat.enemies[0].hull, damage: run.combat.enemies[0].damage });
+  `);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { hull: 29, damage: 6 });
 });
 
 test("보스전은 항로와 무관하게 한 척으로 유지된다", () => {
