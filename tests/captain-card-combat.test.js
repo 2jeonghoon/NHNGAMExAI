@@ -504,6 +504,16 @@ test("밀수업자의 도르래 사용 상태는 새 플레이어 턴에 초기�
   assert.equal(read(context, "run.combat.smugglerPulleyUsed"), false);
 });
 
+test("절약가가 있어도 손패에 표시되는 코스트는 할인 전 실제 비용이다", () => {
+  const members = [crew("cook", "normal", "frugal")];
+  const context = combatForCaptain("gunner", ["fire", "chain"], { crew: members, energy: 3 });
+  assert.equal(read(context, "displayCardCost(run.combat.cardState.hand[0])"), 1);
+  assert.equal(read(context, "effectiveCardCost(run.combat.cardState.hand[0])"), 0);
+  assert.equal(playNamed(context, "fire", "enemy-0"), true);
+  assert.equal(read(context, "displayCardCost(run.combat.cardState.hand[0])"), 1);
+  assert.equal(read(context, "effectiveCardCost(run.combat.cardState.hand[0])"), 1);
+});
+
 test("절약가는 전투 첫 카드에 한 번만 적용되고 중복 선원은 중첩되지 않는다", () => {
   const members = [crew("cook", "normal", "frugal"), crew("gunner", "normal", "frugal")];
   const context = combatForCaptain("gunner", ["fire", "fire"], { crew: members, energy: 1 });

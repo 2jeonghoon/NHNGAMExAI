@@ -1659,10 +1659,14 @@ function maneuverUseError(cardId, enemy = null) {
   return null;
 }
 
-function effectiveCardCost(instance) {
+function displayCardCost(instance) {
   const card = instance ? CardDefinitions.getCard(instance.cardId) : null;
+  return Math.max(0, (card?.cost || 0) + (instance?.costDelta || 0));
+}
+
+function effectiveCardCost(instance) {
   const frugalDiscount = hasTrait("frugal") && !run.combat.frugalUsed ? 1 : 0;
-  return Math.max(0, (card?.cost || 0) + (instance?.costDelta || 0) - frugalDiscount);
+  return Math.max(0, displayCardCost(instance) - frugalDiscount);
 }
 
 function cardUseError(instanceId, target) {
@@ -3084,7 +3088,7 @@ function renderCombatHand() {
     button.setAttribute("aria-keyshortcuts", String(index + 1));
     button.setAttribute("aria-pressed", String(selected));
     button.append(
-      makeElement("span", "combat-card-cost", String(effectiveCardCost(instance))),
+      makeElement("span", "combat-card-cost", String(displayCardCost(instance))),
       makeElement("strong", "combat-card-name", card.name),
       makeElement("span", "combat-card-family", card.family),
       makeElement("span", "combat-card-description", combatCardDescription(card)),
