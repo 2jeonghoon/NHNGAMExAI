@@ -2164,6 +2164,10 @@ function captainSkillError(target) {
   return null;
 }
 
+function infamySkillScale() {
+  return clamp(0.7 + (run?.infamy || 0) / 200, 0.7, 1.2);
+}
+
 function useCaptainSkill(target) {
   if (captainSkillError(target)) return false;
   const combat = run.combat;

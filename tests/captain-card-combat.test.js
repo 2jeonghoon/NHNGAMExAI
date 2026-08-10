@@ -715,5 +715,13 @@ test("combatCannonDamageRange의 각 (배수, 보너스) 조합은 cannonDamage(
   });
 });
 
+test("infamySkillScale은 악명 0/60/100/150에서 각각 0.7/1.0/1.2/1.2를 반환한다", () => {
+  const context = loadGameScripts(GAME_SCRIPTS);
+  const at = (infamy) => read(context, `(() => { run = { infamy: ${infamy} }; return infamySkillScale(); })()`);
+  assert.equal(at(0), 0.7);
+  assert.equal(at(60), 1);
+  assert.equal(at(100), 1.2);
+  assert.equal(at(150), 1.2);
+});
 
 
