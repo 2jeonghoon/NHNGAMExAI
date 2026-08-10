@@ -1830,11 +1830,11 @@ function executePublicCard(cardId, target) {
     if (resolveCardShot(resolution, enemy, "fire")) damageEnemy(enemy, { hull: Math.max(1, Math.round(cannonDamage() * 0.6)) }, resolution);
     resolution.cardsDrawn = drawForCard(1);
   } else if (cardId === "chain" && resolveCardShot(resolution, enemy, "chain", -0.05)) {
-    damageEnemy(enemy, { sails: luckyRandomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0) }, resolution);
+    damageEnemy(enemy, { sails: Math.round((luckyRandomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0)) * PLAYER_DAMAGE_SCALE) }, resolution);
   } else if (cardId === "heavy_chain" && resolveCardShot(resolution, enemy, "chain")) {
-    damageEnemy(enemy, { sails: luckyRandomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0) + 8 }, resolution);
+    damageEnemy(enemy, { sails: Math.round((luckyRandomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0) + 8) * PLAYER_DAMAGE_SCALE) }, resolution);
   } else if (cardId === "entangling_chain" && resolveCardShot(resolution, enemy, "chain")) {
-    damageEnemy(enemy, { sails: luckyRandomInt(3, 6) + getGunnerBonus() }, resolution);
+    damageEnemy(enemy, { sails: Math.round((luckyRandomInt(3, 6) + getGunnerBonus()) * PLAYER_DAMAGE_SCALE) }, resolution);
     enemy.movementBlocked = true;
   } else if (["approach", "tailwind_charge", "ram"].includes(cardId)) {
     const chance = hasArtifact("ghostSail")
@@ -1894,7 +1894,7 @@ function executePublicCard(cardId, target) {
       }
       if (cardId === "chain_rain") {
         const hit = resolveCardShot(resolution, candidate, "chain", -0.1);
-        return { enemy: candidate, damage: hit ? { sails: 5 + getGunnerBonus() } : {} };
+        return { enemy: candidate, damage: hit ? { sails: Math.round((5 + getGunnerBonus()) * PLAYER_DAMAGE_SCALE) } : {} };
       }
       recordCardShot(resolution, candidate, true);
       return { enemy: candidate, damage: { hull: 10, sails: 5 } };
@@ -2261,7 +2261,7 @@ function combatAction(action) {
     }
   } else if (action === "chain") {
     if (consumeGuaranteedFirstShot() || Math.random() <= playerHitChance("chain")) {
-      const damage = luckyRandomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0);
+      const damage = Math.round((luckyRandomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0)) * PLAYER_DAMAGE_SCALE);
       enemy.sails -= damage;
       combat.message = `사슬탄이 적의 돛을 찢었다. 돛 피해 ${damage}.`;
       addCannonEffect("player", false, false, enemy.id, enemyEffectAnchor);
@@ -2656,9 +2656,9 @@ function combatCardDescription(card) {
     fire: `명중 ${combatHitChance("fire", -0.05)} · 선체 ${combatCannonDamageRange()} 피해 · 선원 1 피해 25%`,
     aimed_fire: `명중 ${combatHitChance("fire", 0.15)} · 선체 ${combatCannonDamageRange(1, 6)} 피해`,
     rapid_fire: `명중 ${combatHitChance("fire")} · 선체 ${combatCannonDamageRange(0.6)} 피해 · 카드 1장 드로우`,
-    chain: `명중 ${combatHitChance("chain", -0.05)} · 돛 ${formatCombatRange(chainMinimum, chainMaximum)} 피해`,
-    heavy_chain: `명중 ${combatHitChance("chain")} · 돛 ${formatCombatRange(chainMinimum + 8, chainMaximum + 8)} 피해`,
-    entangling_chain: `명중 ${combatHitChance("chain")} · 돛 ${formatCombatRange(3 + gunnerBonus, 6 + gunnerBonus)} 피해 · 다음 이동 차단`,
+    chain: `명중 ${combatHitChance("chain", -0.05)} · 돛 ${formatCombatRange(Math.round(chainMinimum * PLAYER_DAMAGE_SCALE), Math.round(chainMaximum * PLAYER_DAMAGE_SCALE))} 피해`,
+    heavy_chain: `명중 ${combatHitChance("chain")} · 돛 ${formatCombatRange(Math.round((chainMinimum + 8) * PLAYER_DAMAGE_SCALE), Math.round((chainMaximum + 8) * PLAYER_DAMAGE_SCALE))} 피해`,
+    entangling_chain: `명중 ${combatHitChance("chain")} · 돛 ${formatCombatRange(Math.round((3 + gunnerBonus) * PLAYER_DAMAGE_SCALE), Math.round((6 + gunnerBonus) * PLAYER_DAMAGE_SCALE))} 피해 · 다음 이동 차단`,
     approach: `성공 ${approachChance}% · 대상과 거리 -1 · 성공 시 이번 적 턴 적 명중률 -8%p`,
     tailwind_charge: `순풍 전용 · 성공 ${approachChance}% · 거리 -1 · 카드 1장 드로우`,
     ram: `성공 ${approachChance}% · 거리 -1 · 적 선체 8 · 자신의 선체 3 피해`,
@@ -2670,7 +2670,7 @@ function combatCardDescription(card) {
     board: `거리 1·적 돛 55% 이하 · 나포 ${combatBoardChanceText()}`,
     desperate_board: `거리 1 · 적 돛 조건 무시 · 나포 ${combatBoardChanceText(-0.15)}`,
     barrage_fire: `각 적 명중 ${combatHitChance("fire", -0.1)} · 선체 ${combatCannonDamageRange(0.6)} 피해`,
-    chain_rain: `각 적 명중 ${combatHitChance("chain", -0.1)} · 돛 ${5 + gunnerBonus} 피해`,
+    chain_rain: `각 적 명중 ${combatHitChance("chain", -0.1)} · 돛 ${Math.round((5 + gunnerBonus) * PLAYER_DAMAGE_SCALE)} 피해`,
     gunner_shrapnel: `명중 ${combatHitChance("fire")} · 선체 ${combatCannonDamageRange(0.6)} · 선원 2 피해`,
     gunner_double_broadside: `각 명중 ${combatHitChance("fire")} · 선체 ${combatCannonDamageRange(0.7)} 피해 × 2회`,
     gunner_overcharge: `명중 ${combatHitChance("fire")} · 선체 ${combatCannonDamageRange(1, 8)} · 적 돛 5 · 자신의 돛 3 피해`,

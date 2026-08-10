@@ -334,7 +334,7 @@ test("카드 설명은 현재 전투 수치로 계산되고 내부 함수명이�
 
   assert.equal(descriptions[0], "명중 76% · 선체 6~10 피해 · 선원 1 피해 25%");
   assert.equal(descriptions[1], "명중 96% · 선체 12~16 피해");
-  assert.equal(descriptions[2], "명중 66% · 돛 6~10 피해");
+  assert.equal(descriptions[2], "명중 66% · 돛 5~8 피해");
   assert.equal(descriptions[3], "성공 80% · 대상과 거리 -1 · 성공 시 이번 적 턴 적 명중률 -8%p");
   assert.equal(descriptions[4], "수리도구 1개 · 선체 7 · 돛 3 회복");
   assert.equal(descriptions[5], "거리 1·적 돛 55% 이하 · 나포 20%");

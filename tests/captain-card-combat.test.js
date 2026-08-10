@@ -626,6 +626,49 @@ test("combatCannonDamageRange는 cannonDamage와 같은 스케일로 범위를 �
   assert.equal(range, "6~10");
 });
 
+test("chain 카드는 스케일이 적용된 돛 피해를 준다", () => {
+  const context = combatForCaptain("gunner", ["chain"], { morale: 0 });
+  read(context, "Math.random = () => 0; luckyRandomInt = () => 6;"); // 스케일 전 최소 굴림값 고정
+  const before = read(context, "run.combat.enemies[0].sails");
+  playNamed(context, "chain", "enemy-0");
+  const after = read(context, "run.combat.enemies[0].sails");
+  // 스케일 전: luckyRandomInt(6) + gunnerBonus(0) + chainLocker(0) = 6 → 스케일 후: round(6 * 0.8) = 5
+  assert.equal(before - after, 5);
+});
+
+test("heavy_chain 카드는 +8 보너스를 포함한 전체 값에 스케일이 적용된다", () => {
+  const context = combatForCaptain("gunner", ["heavy_chain"], { morale: 0 });
+  read(context, "Math.random = () => 0; luckyRandomInt = () => 6;");
+  const before = read(context, "run.combat.enemies[0].sails");
+  playNamed(context, "heavy_chain", "enemy-0");
+  const after = read(context, "run.combat.enemies[0].sails");
+  // 스케일 전: 6 + 0 + 0 + 8 = 14 → 스케일 후: round(14 * 0.8) = 11
+  assert.equal(before - after, 11);
+});
+
+test("chain_rain 카드는 스케일이 적용된 고정 돛 피해를 각 적에게 준다", () => {
+  const context = combatForCaptain("gunner", ["chain_rain"], { morale: 0, enemyCount: 3 });
+  read(context, "Math.random = () => 0;");
+  const before = JSON.parse(read(context, "JSON.stringify(run.combat.enemies.map((enemy) => enemy.sails))"));
+  playNamed(context, "chain_rain", "allEnemies");
+  const after = JSON.parse(read(context, "JSON.stringify(run.combat.enemies.map((enemy) => enemy.sails))"));
+  // 스케일 전: 5 + gunnerBonus(0) = 5 → 스케일 후: round(5 * 0.8) = 4, 3척 모두 동일
+  assert.deepEqual(before.map((sails, index) => sails - after[index]), [4, 4, 4]);
+});
+
+test("combatCardDescription의 사슬탄 범위는 실제 계산과 같은 스케일을 표시한다", () => {
+  const context = combatForCaptain("gunner", ["chain", "heavy_chain", "entangling_chain"], { morale: 0 });
+  const chainDesc = read(context, `combatCardDescription(CardDefinitions.getCard("chain"))`);
+  const heavyDesc = read(context, `combatCardDescription(CardDefinitions.getCard("heavy_chain"))`);
+  const entangleDesc = read(context, `combatCardDescription(CardDefinitions.getCard("entangling_chain"))`);
+  // chain 스케일 전 6~10 → 스케일 후 5~8
+  assert.match(chainDesc, /돛 5~8 피해/);
+  // heavy_chain 스케일 전 14~18 → 스케일 후 11~14
+  assert.match(heavyDesc, /돛 11~14 피해/);
+  // entangling_chain 스케일 전 3~6 → 스케일 후 2~5
+  assert.match(entangleDesc, /돛 2~5 피해/);
+});
+
 
 
 
