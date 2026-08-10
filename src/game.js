@@ -1616,7 +1616,7 @@ function playerHitChance(shotType, targetEnemy = focusedEnemy()) {
 }
 
 function cannonDamage() {
-  return getCannonPower() + randomInt(2, 6) + (hasArtifact("powder") ? 3 : 0);
+  return getCannonPower() + luckyRandomInt(2, 6) + (hasArtifact("powder") ? 3 : 0);
 }
 
 function consumeGuaranteedFirstShot() {
@@ -1828,11 +1828,11 @@ function executePublicCard(cardId, target) {
     if (resolveCardShot(resolution, enemy, "fire")) damageEnemy(enemy, { hull: Math.max(1, Math.round(cannonDamage() * 0.6)) }, resolution);
     resolution.cardsDrawn = drawForCard(1);
   } else if (cardId === "chain" && resolveCardShot(resolution, enemy, "chain", -0.05)) {
-    damageEnemy(enemy, { sails: randomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0) }, resolution);
+    damageEnemy(enemy, { sails: luckyRandomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0) }, resolution);
   } else if (cardId === "heavy_chain" && resolveCardShot(resolution, enemy, "chain")) {
-    damageEnemy(enemy, { sails: randomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0) + 8 }, resolution);
+    damageEnemy(enemy, { sails: luckyRandomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0) + 8 }, resolution);
   } else if (cardId === "entangling_chain" && resolveCardShot(resolution, enemy, "chain")) {
-    damageEnemy(enemy, { sails: randomInt(3, 6) + getGunnerBonus() }, resolution);
+    damageEnemy(enemy, { sails: luckyRandomInt(3, 6) + getGunnerBonus() }, resolution);
     enemy.movementBlocked = true;
   } else if (["approach", "tailwind_charge", "ram"].includes(cardId)) {
     const chance = hasArtifact("ghostSail")

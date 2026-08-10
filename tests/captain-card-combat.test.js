@@ -582,3 +582,27 @@ test("사기 50이면 재굴림 확률 체크는 Math.random() < 0.5로 이루�
   })()`);
   assert.equal(rerolled, 10);
 });
+
+test("cannonDamage는 luckyRandomInt(2, 6)을 사용한다", () => {
+  const context = combatForCaptain("gunner", ["fire"], { morale: 60 });
+  const calls = JSON.parse(read(context, `JSON.stringify((() => {
+    const calls = [];
+    luckyRandomInt = (min, max) => { calls.push([min, max]); return max; };
+    playCard(run.combat.cardState.hand[0].instanceId, "enemy-0");
+    return calls;
+  })())`));
+  assert.deepEqual(calls, [[2, 6]]);
+});
+
+test("사슬탄 계열 카드(chain, heavy_chain, entangling_chain)는 luckyRandomInt로 피해를 굴린다", () => {
+  const context = combatForCaptain("gunner", ["chain", "heavy_chain", "entangling_chain"], { morale: 40 });
+  const calls = JSON.parse(read(context, `JSON.stringify((() => {
+    const calls = [];
+    luckyRandomInt = (min, max) => { calls.push([min, max]); return max; };
+    playCard(run.combat.cardState.hand.find((c) => c.cardId === "chain").instanceId, "enemy-0");
+    playCard(run.combat.cardState.hand.find((c) => c.cardId === "heavy_chain").instanceId, "enemy-0");
+    playCard(run.combat.cardState.hand.find((c) => c.cardId === "entangling_chain").instanceId, "enemy-0");
+    return calls;
+  })())`));
+  assert.deepEqual(calls, [[6, 10], [6, 10], [3, 6]]);
+});

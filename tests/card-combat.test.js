@@ -324,7 +324,8 @@ test("카드 포격은 명중과 빗나감 효과를 만들고 광역 표적은 
   const result = JSON.parse(read(context, `JSON.stringify((() => {
     const scheduled = [];
     const effects = [];
-    randomValues = [0, 0, 0.99, 0, 0, 0, 0, 0];
+    run.morale = 0;
+    randomValues = [0, 0, 0, 0.99, 0, 0, 0, 0, 0, 0];
     Math.random = () => randomValues.shift() ?? 0;
     setTimeout = (callback, delay) => {
       if (delay === 80 || delay === 160) scheduled.push({ callback, delay });
