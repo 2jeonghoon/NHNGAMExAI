@@ -55,3 +55,4 @@ function luckyRandomInt(min, max) {
 - `luckyRandomInt` 단위 테스트: `Math.random`을 시퀀스로 모킹해 (1) 사기 0일 때 항상 첫 굴림만 사용, (2) 사기 100일 때 항상 재굴림 후 더 큰 값 채택, (3) 사기 50일 때 재굴림 확률 체크가 `Math.random() < 0.5`로 이루어짐을 확인한다.
 - `cannonDamage()`와 chain/heavy_chain/entangling_chain 카드 실행 경로에서 사기 100 + 조작된 `Math.random` 시퀀스(첫 굴림 낮게, 재굴림 높게)로 실제 적용 피해가 더 높은 쪽 값을 반영하는지 확인하는 통합 테스트를 추가한다.
 - 기존 카드 전투 회귀 테스트(`tests/captain-card-combat.test.js`, `tests/card-ui.test.js`)가 그대로 통과하는지 확인한다 — 이 테스트들은 `Math.random`을 상수 함수(예: `() => 0`, `() => 0.9`)로 모킹하므로, 사기 값과 무관하게 재굴림 여부와 상관없이 `randomInt`가 매번 동일한 값을 반환해 최종 피해량 결과는 바뀌지 않는다.
+- 다만 `luckyRandomInt`는 사기 0에서도 재굴림 확률 체크를 위해 `randomInt`보다 `Math.random()` 호출을 한 번 더 소비한다. `tests/card-combat.test.js`처럼 손패 시퀀스(배열)로 `Math.random`을 모킹해 플레이어의 포격·사슬탄 카드 경로를 통과하는 테스트는 이 추가 호출을 반드시 계산에 넣어야 하며, 결정론적 결과를 보장하려면 시퀀스를 설치하기 직전에 `run.morale = 0`을 명시적으로 고정해야 한다 (해당 파일에 적용된 수정 참고).

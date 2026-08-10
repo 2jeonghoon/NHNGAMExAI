@@ -163,7 +163,8 @@ test("유효 대상과 실제 실행은 같은 중앙 조건 검사를 사용한
 test("기존 포격은 피해 굴림 뒤에 선원 피해를 판정한다", () => {
   const context = combatWithHand(["fire"], 3);
   read(context, `
-    randomValues = [0.1, 0.9, 0];
+    run.morale = 0;
+    randomValues = [0.1, 0.9, 0, 0];
     Math.random = () => randomValues.shift() ?? 0;
   `);
   assert.equal(playNamed(context, "fire", "enemy-0"), true);
@@ -202,7 +203,7 @@ test("모달이 열린 동안 카드 실행은 손패·에너지·전투 수치�
 
 test("명중·접안 변형 카드는 명시된 확률 보정을 경계 굴림에 적용한다", () => {
   const aimed = combatWithHand(["aimed_fire"], 3);
-  read(aimed, "randomValues = [0.9, 0]; Math.random = () => randomValues.shift() ?? 0");
+  read(aimed, "run.morale = 0; randomValues = [0.9, 0, 0]; Math.random = () => randomValues.shift() ?? 0");
   playNamed(aimed, "aimed_fire", "enemy-0");
   assert.equal(read(aimed, "run.combat.enemies[0].hull"), 86);
 

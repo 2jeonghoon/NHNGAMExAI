@@ -2259,7 +2259,7 @@ function combatAction(action) {
     }
   } else if (action === "chain") {
     if (consumeGuaranteedFirstShot() || Math.random() <= playerHitChance("chain")) {
-      const damage = randomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0);
+      const damage = luckyRandomInt(6, 10) + getGunnerBonus() + (hasArtifact("chainLocker") ? 4 : 0);
       enemy.sails -= damage;
       combat.message = `사슬탄이 적의 돛을 찢었다. 돛 피해 ${damage}.`;
       addCannonEffect("player", false, false, enemy.id, enemyEffectAnchor);
