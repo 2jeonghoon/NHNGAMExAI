@@ -128,7 +128,7 @@ test("선장 기술은 회피와 에너지를 보존하고 턴을 끝내지 않�
   assert.equal(read(context, "run.combat.enemies[0].hull"), 80);
   assert.equal(playNamed(context, "fire", "enemy-0"), true);
   assert.equal(read(context, "run.combat.cardState.energy"), 1);
-  assert.equal(read(context, "run.combat.enemies[0].hull"), 72);
+  assert.equal(read(context, "run.combat.enemies[0].hull"), 74);
 });
 
 test("모달이 열린 동안 선장 기술은 준비 상태와 전투 수치를 바꾸지 않는다", () => {
@@ -168,7 +168,7 @@ test("기존 포격은 피해 굴림 뒤에 선원 피해를 판정한다", () =
     Math.random = () => randomValues.shift() ?? 0;
   `);
   assert.equal(playNamed(context, "fire", "enemy-0"), true);
-  assert.equal(read(context, "run.combat.enemies[0].hull"), 88);
+  assert.equal(read(context, "run.combat.enemies[0].hull"), 90);
   assert.equal(read(context, "run.combat.enemies[0].crew"), 19);
 });
 
@@ -205,7 +205,7 @@ test("명중·접안 변형 카드는 명시된 확률 보정을 경계 굴림�
   const aimed = combatWithHand(["aimed_fire"], 3);
   read(aimed, "run.morale = 0; randomValues = [0.9, 0, 0]; Math.random = () => randomValues.shift() ?? 0");
   playNamed(aimed, "aimed_fire", "enemy-0");
-  assert.equal(read(aimed, "run.combat.enemies[0].hull"), 86);
+  assert.equal(read(aimed, "run.combat.enemies[0].hull"), 88);
 
   const barrage = combatWithHand(["barrage_fire"], 3);
   read(barrage, "Math.random = () => 0.75");
@@ -233,11 +233,11 @@ test("사슬 폭우는 기존 사슬탄 분석 계열로 기록한다", () => {
 
 const publicCards = [
   { id: "fire", cost: 1, targetType: "enemy", target: "enemy-0", exhaust: false,
-    want: { enemyHull: 92 } },
+    want: { enemyHull: 94 } },
   { id: "aimed_fire", cost: 2, targetType: "enemy", target: "enemy-0", exhaust: false,
-    want: { enemyHull: 86 } },
+    want: { enemyHull: 88 } },
   { id: "rapid_fire", cost: 0, targetType: "enemy", target: "enemy-0", exhaust: false,
-    want: { enemyHull: 95, handIncludes: "fire" } },
+    want: { enemyHull: 96, handIncludes: "fire" } },
   { id: "chain", cost: 1, targetType: "enemy", target: "enemy-0", exhaust: false,
     want: { enemySails: 24 } },
   { id: "heavy_chain", cost: 2, targetType: "enemy", target: "enemy-0", exhaust: false,
@@ -270,7 +270,7 @@ const publicCards = [
   { id: "desperate_board", cost: 3, targetType: "enemy", target: "enemy-0", exhaust: false,
     overrides: { range: 1 }, want: { captured: true, enemyHull: 0 } },
   { id: "barrage_fire", cost: 2, targetType: "allEnemies", target: "allEnemies", exhaust: false,
-    overrides: { enemyCount: 3 }, want: { allEnemyHull: 95 } },
+    overrides: { enemyCount: 3 }, want: { allEnemyHull: 96 } },
   { id: "chain_rain", cost: 2, targetType: "allEnemies", target: "allEnemies", exhaust: false,
     overrides: { enemyCount: 3 }, want: { allEnemySails: 25 } },
   { id: "fireship", cost: 3, targetType: "allEnemies", target: "allEnemies", exhaust: true,
@@ -344,7 +344,7 @@ test("카드 포격은 명중과 빗나감 효과를 만들고 광역 표적은 
     { enemyId: "enemy-1", missed: true },
     { enemyId: "enemy-2", missed: false },
   ]);
-  assert.deepEqual(result.hulls, [95, 100, 95]);
+  assert.deepEqual(result.hulls, [96, 100, 96]);
 });
 
 test("항해 덱의 알 수 없는 카드 ID는 전투 시작 전에 제외하고 각각 기록한다", () => {
@@ -397,3 +397,9 @@ test("항해와 전투 시작은 독립 덱과 카드 상태를 초기화한다"
     energy: 3,
   });
 });
+
+
+
+
+
+

@@ -1615,8 +1615,10 @@ function playerHitChance(shotType, targetEnemy = focusedEnemy()) {
   return clamp(chance, 0.25, 0.96);
 }
 
+const PLAYER_DAMAGE_SCALE = 0.8;
+
 function cannonDamage() {
-  return getCannonPower() + luckyRandomInt(2, 6) + (hasArtifact("powder") ? 3 : 0);
+  return Math.round((getCannonPower() + luckyRandomInt(2, 6) + (hasArtifact("powder") ? 3 : 0)) * PLAYER_DAMAGE_SCALE);
 }
 
 function consumeGuaranteedFirstShot() {
@@ -2619,8 +2621,8 @@ function combatHitChance(shotType, delta = 0) {
 
 function combatCannonDamageRange(multiplier = 1, bonus = 0) {
   const artifactBonus = hasArtifact("powder") ? 3 : 0;
-  const minimum = Math.max(1, Math.round((getCannonPower() + 2 + artifactBonus) * multiplier + bonus));
-  const maximum = Math.max(1, Math.round((getCannonPower() + 6 + artifactBonus) * multiplier + bonus));
+  const minimum = Math.max(1, Math.round((getCannonPower() + 2 + artifactBonus + bonus) * PLAYER_DAMAGE_SCALE * multiplier));
+  const maximum = Math.max(1, Math.round((getCannonPower() + 6 + artifactBonus + bonus) * PLAYER_DAMAGE_SCALE * multiplier));
   return formatCombatRange(minimum, maximum);
 }
 
@@ -4653,3 +4655,4 @@ ui.deckButton.addEventListener("click", showDeck);
 
 showHarbor();
 requestAnimationFrame(renderFrame);
+

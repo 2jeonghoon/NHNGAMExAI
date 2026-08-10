@@ -204,14 +204,14 @@ const captainCards = [
   { captain: "gunner", id: "gunner_steady_aim", cost: 0, targetType: "self", target: "self", exhaust: false,
     want: { drawn: 1, nextShotAccuracyBonus: 0.15 } },
   { captain: "gunner", id: "gunner_shrapnel", cost: 1, targetType: "enemy", target: "enemy-0", exhaust: false,
-    want: { enemyHull: 95, enemyCrew: 18 } },
+    want: { enemyHull: 96, enemyCrew: 18 } },
   { captain: "gunner", id: "gunner_double_broadside", cost: 2, targetType: "enemy", target: "enemy-0", exhaust: false,
-    want: { enemyHull: 88 } },
+    want: { enemyHull: 92 } },
   { captain: "gunner", id: "gunner_powder_shift", cost: 1, targetType: "sea", target: "sea", exhaust: false,
     prepare: `run.combat.cardState.drawPile = [{ instanceId: "powder-card", cardId: "gunner_shrapnel", costDelta: 0 }]`,
     want: { handCard: "gunner_shrapnel", handCostDelta: -1 } },
   { captain: "gunner", id: "gunner_overcharge", cost: 2, targetType: "enemy", target: "enemy-0", exhaust: false,
-    want: { enemyHull: 84, enemySails: 25, playerSails: 7 } },
+    want: { enemyHull: 86, enemySails: 25, playerSails: 7 } },
   { captain: "gunner", id: "gunner_magazine_open", cost: 3, targetType: "enemy", target: "enemy-0", exhaust: true,
     want: { enemyHull: 76, playerHull: 44 } },
   { captain: "gunner", id: "gunner_fleet_broadside", cost: 3, targetType: "allEnemies", target: "allEnemies", exhaust: true,
@@ -316,8 +316,8 @@ test("연속 포격의 두 타격과 표식 보너스는 분석 피해에 누적
   playNamed(context, "mystic_abyss_mark", "enemy-0");
   read(context, "run.captainId = 'gunner'; recordedDamage = null; Analytics.addDamage = (dealt) => { recordedDamage = dealt; }");
   playNamed(context, "gunner_double_broadside", "enemy-0");
-  assert.equal(read(context, "run.combat.enemies[0].hull"), 80);
-  assert.equal(read(context, "recordedDamage"), 20);
+  assert.equal(read(context, "run.combat.enemies[0].hull"), 84);
+  assert.equal(read(context, "recordedDamage"), 16);
 });
 
 test("심연의 표식은 선장 기술의 선체 피해에도 적용된다", () => {
@@ -606,3 +606,26 @@ test("사슬탄 계열 카드(chain, heavy_chain, entangling_chain)는 luckyRand
   })())`));
   assert.deepEqual(calls, [[6, 10], [6, 10], [3, 6]]);
 });
+
+test("cannonDamage는 PLAYER_DAMAGE_SCALE(0.8)만큼 낮아진 값을 반환한다", () => {
+  const context = loadGameScripts(GAME_SCRIPTS);
+  const result = read(context, `(() => {
+    run = { cannons: 6, crew: [], artifacts: [], morale: 0 };
+    luckyRandomInt = () => 4; // 스케일 전 기본 굴림값을 고정
+    return cannonDamage();
+  })()`);
+  // 스케일 전: getCannonPower()(6) + luckyRandomInt(4) = 10 → 스케일 후: round(10 * 0.8) = 8
+  assert.equal(result, 8);
+});
+
+test("combatCannonDamageRange는 cannonDamage와 같은 스케일로 범위를 표시한다", () => {
+  const context = combatForCaptain("gunner", ["fire"], { morale: 0 });
+  const range = read(context, "combatCannonDamageRange()");
+  // gunner 기본 화력은 6(run.cannons), 크루 보너스 0.
+  // 스케일 전 범위: 6+2=8 ~ 6+6=12 → 스케일 후: round(8*0.8)=6 ~ round(12*0.8)=10
+  assert.equal(range, "6~10");
+});
+
+
+
+
