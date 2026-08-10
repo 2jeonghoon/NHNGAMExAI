@@ -17,7 +17,7 @@ const CardDefinitions = (() => {
     card("rapid_fire", "속사포", "포격", 0, "epic", null, "enemy", false, "포격 명중률로 기존 포격 피해의 60% 선체 피해(최소 1), 카드 1장 드로우"),
     card("chain", "사슬탄", "사슬탄", 1, "normal", null, "enemy", false, "현재 명중률로 기존 돛 공격을 수행한다."),
     card("heavy_chain", "중사슬탄", "사슬탄", 2, "rare", null, "enemy", false, "사슬탄 명중률로 기존 사슬탄 피해 +8"),
-    card("entangling_chain", "얽힘탄", "사슬탄", 1, "epic", null, "enemy", false, "사슬탄 명중률로 3~6 + 포수 보너스 돛 피해, 다음 적 턴의 거리 이동 차단"),
+    card("entangling_chain", "얽힘탄", "사슬탄", 1, "epic", null, "enemy", false, "사슬탄 명중률로 2~5 + 포수 보너스 돛 피해, 다음 적 턴의 거리 이동 차단"),
     card("approach", "접근 기동", "접근", 1, "normal", null, "sea", false, "기존 확률로 거리 1단계에 접근한다."),
     card("tailwind_charge", "순풍 돌입", "접근", 0, "rare", null, "sea", false, "순풍일 때만 사용하며 접근 후 카드 1장을 뽑는다."),
     card("ram", "충각 돌진", "접근", 2, "epic", null, "sea", false, "기존 접근 판정 성공 시 거리 -1, 적 선체 8 피해, 자신의 선체 3 피해"),
@@ -32,7 +32,7 @@ const CardDefinitions = (() => {
     card("grappling_hook", "갈고리 투척", "접안", 1, "rare", null, "enemy", false, "거리 1에서 지정한 적의 돛 5 피해"),
     card("desperate_board", "결사 돌입", "접안", 3, "epic", null, "enemy", false, "거리 1이면 적 돛 조건을 무시하고 기존 접안 확률 -15%p(15~75%)로 나포 시도"),
     card("barrage_fire", "탄막 사격", "광역", 2, "rare", null, "allEnemies", false, "각 적에게 포격 명중률 -10%p로 기존 포격 피해의 60% 선체 피해"),
-    card("chain_rain", "사슬 폭우", "광역", 2, "rare", null, "allEnemies", false, "각 적에게 사슬탄 명중률 -10%p로 5 + 포수 보너스 돛 피해"),
+    card("chain_rain", "사슬 폭우", "광역", 2, "rare", null, "allEnemies", false, "각 적에게 사슬탄 명중률 -10%p로 4 + 포수 보너스 돛 피해"),
     card("fireship", "화공선 방출", "광역", 3, "epic", null, "allEnemies", true, "모든 적에게 명중 보장 선체 10·돛 5 피해, 사기 4 감소"),
 
     card("gunner_steady_aim", "준비 사격", "포격", 0, "normal", "gunner", "self", false, "다음 포격·사슬탄 명중률 +15%p, 카드 1장 드로우"),

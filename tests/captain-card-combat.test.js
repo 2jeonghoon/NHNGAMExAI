@@ -669,6 +669,51 @@ test("combatCardDescription의 사슬탄 범위는 실제 계산과 같은 스�
   assert.match(entangleDesc, /돛 2~5 피해/);
 });
 
+// combatCannonDamageRange()는 cannonDamage()의 실제 반올림 순서(스케일 적용 후 반올림 -> 배수/보너스 적용 후
+// 다시 반올림)를 그대로 흉내내야 한다. 단일 반올림으로 계산하면 배수가 1이 아닌 카드(rapid_fire 등)에서
+// 표시값과 실제 값이 어긋나는 이중 반올림 불일치가 생길 수 있다 (예: 화력 9 + 화약고 아티팩트).
+test("combatCannonDamageRange의 각 (배수, 보너스) 조합은 cannonDamage() 기반 실제 계산과 정확히 일치한다", () => {
+  // 카드 설명에서 실제로 사용되는 (multiplier, bonus) 조합.
+  const pairs = [
+    { label: "fire", multiplier: 1, bonus: 0 },
+    { label: "aimed_fire", multiplier: 1, bonus: 6 },
+    { label: "rapid_fire/barrage_fire/gunner_shrapnel", multiplier: 0.6, bonus: 0 },
+    { label: "gunner_double_broadside", multiplier: 0.7, bonus: 0 },
+    { label: "gunner_overcharge", multiplier: 1, bonus: 8 },
+  ];
+  const combos = [
+    { cannons: 6, powder: false },
+    { cannons: 9, powder: true },
+  ];
+
+  combos.forEach(({ cannons, powder }) => {
+    const context = loadGameScripts(GAME_SCRIPTS);
+    read(context, `
+      run = { cannons: ${cannons}, crew: [], artifacts: ${JSON.stringify(powder ? [{ id: "powder" }] : [])}, morale: 0 };
+    `);
+
+    pairs.forEach(({ label, multiplier, bonus }) => {
+      // 실제 게임플레이가 카드에서 하는 그대로: cannonDamage()를 굴리고 배수/보너스를 적용한 뒤 다시 반올림한다.
+      const actualMinimum = read(context, `(() => {
+        luckyRandomInt = () => 2;
+        return Math.max(1, Math.round(cannonDamage() * ${multiplier} + ${bonus}));
+      })()`);
+      const actualMaximum = read(context, `(() => {
+        luckyRandomInt = () => 6;
+        return Math.max(1, Math.round(cannonDamage() * ${multiplier} + ${bonus}));
+      })()`);
+      const expected = actualMinimum === actualMaximum ? `${actualMinimum}` : `${actualMinimum}~${actualMaximum}`;
+
+      const displayed = read(context, `combatCannonDamageRange(${multiplier}, ${bonus})`);
+
+      assert.equal(
+        displayed,
+        expected,
+        `${label} (cannons=${cannons}, powder=${powder}): 툴팁 "${displayed}" vs 실제 "${expected}"`,
+      );
+    });
+  });
+});
 
 
 
