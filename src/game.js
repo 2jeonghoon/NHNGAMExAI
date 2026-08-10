@@ -2621,8 +2621,8 @@ function combatHitChance(shotType, delta = 0) {
 
 function combatCannonDamageRange(multiplier = 1, bonus = 0) {
   const artifactBonus = hasArtifact("powder") ? 3 : 0;
-  const minimum = Math.max(1, Math.round((getCannonPower() + 2 + artifactBonus + bonus) * PLAYER_DAMAGE_SCALE * multiplier));
-  const maximum = Math.max(1, Math.round((getCannonPower() + 6 + artifactBonus + bonus) * PLAYER_DAMAGE_SCALE * multiplier));
+  const minimum = Math.max(1, Math.round((getCannonPower() + 2 + artifactBonus) * PLAYER_DAMAGE_SCALE * multiplier + bonus));
+  const maximum = Math.max(1, Math.round((getCannonPower() + 6 + artifactBonus) * PLAYER_DAMAGE_SCALE * multiplier + bonus));
   return formatCombatRange(minimum, maximum);
 }
 
