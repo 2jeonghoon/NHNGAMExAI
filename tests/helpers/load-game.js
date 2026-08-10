@@ -74,7 +74,7 @@ function browserSource(file) {
   const source = fs.readFileSync(path.resolve(PROJECT_ROOT, file), "utf8");
   if (file !== "src/game.js") return source;
   return source.replace(
-    /\nshowHarbor\(\);\nrequestAnimationFrame\(renderFrame\);\s*$/,
+    /\r?\nshowHarbor\(\);\r?\nrequestAnimationFrame\(renderFrame\);\s*$/,
     "\n",
   );
 }
