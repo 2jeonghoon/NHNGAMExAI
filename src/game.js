@@ -2179,7 +2179,7 @@ function useCaptainSkill(target) {
   combat.skillReady = false;
 
   if (captain().id === "gunner") {
-    const damage = 16 + Math.floor(getCannonPower() * 0.8) + (hasArtifact("powder") ? 3 : 0);
+    const damage = Math.round((12 + Math.floor(getCannonPower() * 0.8) + (hasArtifact("powder") ? 3 : 0)) * infamySkillScale());
     dealEnemyHullDamage(enemy, damage);
     enemy.sails -= 4;
     combat.message = `전탄 일제사격! 적 선체에 ${damage} 피해.`;
@@ -2189,19 +2189,19 @@ function useCaptainSkill(target) {
     FleetCombat.livingEnemies(combat.enemies).forEach((candidate) => setEnemyRange(candidate.id, 3));
     combat.evasion = 0.8;
     run.sails = Math.min(run.maxSails, run.sails + 5);
-    const stormDamage = 10 + getGunnerBonus();
+    const stormDamage = Math.round((10 + getGunnerBonus()) * infamySkillScale());
     enemy.sails = Math.max(0, enemy.sails - stormDamage);
     combat.message = `폭풍 가르기! 사선을 벗어나 돛을 복구하고 적 돛에 ${stormDamage} 피해를 입혔다.`;
     playTone(720, 0.15, "triangle");
   } else if (captain().id === "mystic") {
-    dealEnemyHullDamage(enemy, 6);
+    dealEnemyHullDamage(enemy, Math.round(6 * infamySkillScale()));
     enemy.sails -= 7;
     enemy.crew = Math.max(0, enemy.crew - 4);
     run.morale = clamp(run.morale + 5, 0, 100);
     combat.message = "심해의 속삭임이 적 함선 전체를 뒤흔든다.";
     playTone(190, 0.3, "sine", 0.05);
   } else {
-    const damage = 10 + Math.floor(getCannonPower() * 0.5);
+    const damage = Math.round((10 + Math.floor(getCannonPower() * 0.5)) * infamySkillScale());
     const heal = 8 + getCarpenterRepairBonus();
     dealEnemyHullDamage(enemy, damage);
     enemy.sails -= 5;

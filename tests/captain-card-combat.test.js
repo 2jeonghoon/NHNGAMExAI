@@ -324,7 +324,7 @@ test("심연의 표식은 선장 기술의 선체 피해에도 적용된다", ()
   const context = combatForCaptain("mystic", ["mystic_abyss_mark"]);
   playNamed(context, "mystic_abyss_mark", "enemy-0");
   assert.equal(useSkill(context, "enemy-0"), true);
-  assert.equal(read(context, "run.combat.enemies[0].hull"), 90);
+  assert.equal(read(context, "run.combat.enemies[0].hull"), 92);
   assert.equal(read(context, "run.combat.enemies[0].abyssMarkCharges"), 1);
 });
 
@@ -403,10 +403,10 @@ test("순풍 항로는 다음 플레이어 턴까지 강제되고 그 뒤 만료
 });
 
 const captainSkills = [
-  { captain: "gunner", want: { hull: 80, sails: 26, playerHull: 50, playerSails: 10, morale: 20, ranges: [2, 2, 2], evasion: 0 } },
-  { captain: "navigator", want: { hull: 100, sails: 20, playerHull: 50, playerSails: 15, morale: 20, ranges: [3, 3, 3], evasion: 0.8 } },
-  { captain: "mystic", want: { hull: 94, sails: 23, crew: 16, playerHull: 50, playerSails: 10, morale: 25, ranges: [2, 2, 2], evasion: 0 } },
-  { captain: "revenant", want: { hull: 87, sails: 25, playerHull: 58, playerSails: 10, morale: 20, ranges: [2, 2, 2], evasion: 0 } },
+  { captain: "gunner", want: { hull: 89, sails: 26, playerHull: 50, playerSails: 10, morale: 20, ranges: [2, 2, 2], evasion: 0 } },
+  { captain: "navigator", want: { hull: 100, sails: 23, playerHull: 50, playerSails: 15, morale: 20, ranges: [3, 3, 3], evasion: 0.8 } },
+  { captain: "mystic", want: { hull: 96, sails: 23, crew: 16, playerHull: 50, playerSails: 10, morale: 25, ranges: [2, 2, 2], evasion: 0 } },
+  { captain: "revenant", want: { hull: 91, sails: 25, playerHull: 58, playerSails: 10, morale: 20, ranges: [2, 2, 2], evasion: 0 } },
 ];
 
 for (const row of captainSkills) {
@@ -722,6 +722,54 @@ test("infamySkillScale은 악명 0/60/100/150에서 각각 0.7/1.0/1.2/1.2를 �
   assert.equal(at(60), 1);
   assert.equal(at(100), 1.2);
   assert.equal(at(150), 1.2);
+});
+
+test("포수 스킬은 악명에 따라 12+화력*0.8 기반 선체 피해가 스케일된다", () => {
+  const context = combatForCaptain("gunner", ["fire"]);
+  read(context, "run.infamy = 0;");
+  const before0 = read(context, "run.combat.enemies[0].hull");
+  useSkill(context, "enemy-0");
+  const after0 = read(context, "run.combat.enemies[0].hull");
+  // 화력 6(run.cannons) 기준: 12 + floor(6*0.8) = 16 → 악명 0: round(16*0.7) = 11
+  assert.equal(before0 - after0, 11);
+
+  const context2 = combatForCaptain("gunner", ["fire"]);
+  read(context2, "run.infamy = 100;");
+  const before100 = read(context2, "run.combat.enemies[0].hull");
+  useSkill(context2, "enemy-0");
+  const after100 = read(context2, "run.combat.enemies[0].hull");
+  // 악명 100+: round(16*1.2) = 19
+  assert.equal(before100 - after100, 19);
+});
+
+test("조타수 스킬은 악명에 따라 10+포수보너스 기반 돛 피해가 스케일된다", () => {
+  const context = combatForCaptain("navigator", ["approach"]);
+  read(context, "run.infamy = 0;");
+  const before = read(context, "run.combat.enemies[0].sails");
+  useSkill(context, "enemy-0");
+  const after = read(context, "run.combat.enemies[0].sails");
+  // 크루 없음(포수 보너스 0) 기준: 10 → 악명 0: round(10*0.7) = 7
+  assert.equal(before - after, 7);
+});
+
+test("주술사 스킬은 악명에 따라 고정값 6 기반 선체 피해가 스케일된다", () => {
+  const context = combatForCaptain("mystic", ["approach"]);
+  read(context, "run.infamy = 60;");
+  const before = read(context, "run.combat.enemies[0].hull");
+  useSkill(context, "enemy-0");
+  const after = read(context, "run.combat.enemies[0].hull");
+  // 악명 60: round(6*1.0) = 6
+  assert.equal(before - after, 6);
+});
+
+test("망령 스킬은 악명에 따라 10+화력*0.5 기반 선체 피해가 스케일된다", () => {
+  const context = combatForCaptain("revenant", ["approach"]);
+  read(context, "run.infamy = 0;");
+  const before = read(context, "run.combat.enemies[0].hull");
+  useSkill(context, "enemy-0");
+  const after = read(context, "run.combat.enemies[0].hull");
+  // 화력 6 기준: 10 + floor(6*0.5) = 13 → 악명 0: round(13*0.7) = 9
+  assert.equal(before - after, 9);
 });
 
 

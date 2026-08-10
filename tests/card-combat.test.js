@@ -122,13 +122,13 @@ test("선장 기술은 회피와 에너지를 보존하고 턴을 끝내지 않�
   assert.equal(read(context, "scheduledEnemyTurns"), 0);
   assert.equal(read(context, "run.combat.locked"), false);
   assert.equal(read(context, "run.combat.skillReady"), false);
-  assert.equal(read(context, "run.combat.enemies[0].hull"), 80);
+  assert.equal(read(context, "run.combat.enemies[0].hull"), 89);
 
   read(context, 'combatAction("skill")');
-  assert.equal(read(context, "run.combat.enemies[0].hull"), 80);
+  assert.equal(read(context, "run.combat.enemies[0].hull"), 89);
   assert.equal(playNamed(context, "fire", "enemy-0"), true);
   assert.equal(read(context, "run.combat.cardState.energy"), 1);
-  assert.equal(read(context, "run.combat.enemies[0].hull"), 74);
+  assert.equal(read(context, "run.combat.enemies[0].hull"), 83);
 });
 
 test("모달이 열린 동안 선장 기술은 준비 상태와 전투 수치를 바꾸지 않는다", () => {
