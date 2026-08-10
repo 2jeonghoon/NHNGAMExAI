@@ -1696,6 +1696,16 @@ h1 span {
     border-left: 0;
   }
 
+  /* #modalLayer is nested inside .canvas-wrap and normally fills it via
+     `position: absolute; inset: 0`. With min-height: 0 above, canvas-wrap's
+     height collapses to its aspect-ratio (12/7) at narrow widths — far
+     shorter than most modal content (shop lists, deck view). Anchoring the
+     layer to the viewport instead keeps every modal at full, usable height
+     regardless of how short the canvas box itself has become. */
+  .modal-layer {
+    position: fixed;
+  }
+
   .action-dock {
     min-height: 104px;
     margin-top: 0;
