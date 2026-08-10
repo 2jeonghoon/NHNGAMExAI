@@ -541,3 +541,44 @@ test("갑판장 역할과 에너지 특성 ID가 콘텐츠 풀에 등록된다",
   assert.deepEqual(JSON.parse(read(context, 'JSON.stringify(TRAITS.filter((trait) => ["frugal", "rallying"].includes(trait.id)).map((trait) => trait.id))')), ["frugal", "rallying"]);
   assert.deepEqual(JSON.parse(read(context, 'JSON.stringify(ARTIFACTS.filter((artifact) => ["navigatorHourglass", "brassCapacitor", "smugglerPulley", "tyrantFleetSeal"].includes(artifact.id)).map((artifact) => artifact.id))')), ["navigatorHourglass", "brassCapacitor", "smugglerPulley", "tyrantFleetSeal"]);
 });
+
+test("사기 0이면 luckyRandomInt는 항상 첫 굴림 값만 사용한다", () => {
+  const context = loadGameScripts(GAME_SCRIPTS);
+  const result = read(context, `(() => {
+    run = { morale: 0 };
+    const rolls = [0, 0.99];
+    Math.random = () => rolls.shift();
+    return luckyRandomInt(1, 10);
+  })()`);
+  assert.equal(result, 1);
+});
+
+test("사기 100이면 luckyRandomInt는 항상 재굴림 후 더 큰 값을 채택한다", () => {
+  const context = loadGameScripts(GAME_SCRIPTS);
+  const result = read(context, `(() => {
+    run = { morale: 100 };
+    const rolls = [0, 0, 0.99];
+    Math.random = () => rolls.shift();
+    return luckyRandomInt(1, 10);
+  })()`);
+  assert.equal(result, 10);
+});
+
+test("사기 50이면 재굴림 확률 체크는 Math.random() < 0.5로 이루어진다", () => {
+  const context = loadGameScripts(GAME_SCRIPTS);
+  const notRerolled = read(context, `(() => {
+    run = { morale: 50 };
+    const rolls = [0, 0.5, 0.99];
+    Math.random = () => rolls.shift();
+    return luckyRandomInt(1, 10);
+  })()`);
+  assert.equal(notRerolled, 1);
+
+  const rerolled = read(context, `(() => {
+    run = { morale: 50 };
+    const rolls = [0, 0.49, 0.99];
+    Math.random = () => rolls.shift();
+    return luckyRandomInt(1, 10);
+  })()`);
+  assert.equal(rerolled, 10);
+});

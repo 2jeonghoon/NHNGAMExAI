@@ -462,6 +462,15 @@ function randomInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+function luckyRandomInt(min, max) {
+  const first = randomInt(min, max);
+  const moraleChance = clamp((run?.morale || 0) / 100, 0, 1);
+  if (Math.random() < moraleChance) {
+    return Math.max(first, randomInt(min, max));
+  }
+  return first;
+}
+
 function randomChoice(items) {
   return items[Math.floor(Math.random() * items.length)];
 }
