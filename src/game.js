@@ -1092,7 +1092,7 @@ function showHarbor() {
   clearElement(ui.actionDock);
   setModalBase(
     "A ROGUELIKE VOYAGE",
-    "항해의 끝: 해적왕의 유산",
+    "Devour the Throne",
     "단 한 척의 배와 무작위로 모인 선원들로 출항하십시오. 세 개의 해역을 돌파하고 전설의 보물을 차지한 자만이 해적왕의 이름을 얻습니다.",
     false,
   );
